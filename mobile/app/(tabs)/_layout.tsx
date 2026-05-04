@@ -1,35 +1,99 @@
 import { Tabs } from 'expo-router';
 import React from 'react';
+import { View, StyleSheet } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
+import { EV } from '@/constants/theme';
 
-import { HapticTab } from '@/components/haptic-tab';
-import { IconSymbol } from '@/components/ui/icon-symbol';
-import { Colors } from '@/constants/theme';
-import { useColorScheme } from '@/hooks/use-color-scheme';
+function TabIcon({ name, color, focused }: { name: any; color: string; focused: boolean }) {
+  return (
+    <View style={[styles.iconWrap, focused && styles.iconWrapActive]}>
+      <Ionicons name={name} size={22} color={color} />
+    </View>
+  );
+}
 
 export default function TabLayout() {
-  const colorScheme = useColorScheme();
-
   return (
     <Tabs
       screenOptions={{
-        tabBarActiveTintColor: Colors[colorScheme ?? 'light'].tint,
         headerShown: false,
-        tabBarButton: HapticTab,
+        tabBarStyle: styles.tabBar,
+        tabBarActiveTintColor: EV.primary,
+        tabBarInactiveTintColor: EV.textDim,
+        tabBarLabelStyle: styles.label,
+        tabBarShowLabel: true,
       }}>
       <Tabs.Screen
         name="index"
         options={{
-          title: 'Home',
-          tabBarIcon: ({ color }) => <IconSymbol size={28} name="house.fill" color={color} />,
+          title: 'Map',
+          tabBarIcon: ({ color, focused }) => (
+            <TabIcon name="map" color={color} focused={focused} />
+          ),
         }}
       />
       <Tabs.Screen
-        name="explore"
+        name="stations"
         options={{
-          title: 'Explore',
-          tabBarIcon: ({ color }) => <IconSymbol size={28} name="paperplane.fill" color={color} />,
+          title: 'Stations',
+          tabBarIcon: ({ color, focused }) => (
+            <TabIcon name="flash" color={color} focused={focused} />
+          ),
+        }}
+      />
+      <Tabs.Screen
+        name="budget"
+        options={{
+          title: 'Budget',
+          tabBarIcon: ({ color, focused }) => (
+            <TabIcon name="wallet" color={color} focused={focused} />
+          ),
+        }}
+      />
+      <Tabs.Screen
+        name="carbon"
+        options={{
+          title: 'Carbon',
+          tabBarIcon: ({ color, focused }) => (
+            <TabIcon name="leaf" color={color} focused={focused} />
+          ),
+        }}
+      />
+      <Tabs.Screen
+        name="score"
+        options={{
+          title: 'Eco Score',
+          tabBarIcon: ({ color, focused }) => (
+            <TabIcon name="star" color={color} focused={focused} />
+          ),
         }}
       />
     </Tabs>
   );
 }
+
+const styles = StyleSheet.create({
+  tabBar: {
+    backgroundColor: EV.bgCard,
+    borderTopColor: EV.border,
+    borderTopWidth: 1,
+    height: 70,
+    paddingBottom: 10,
+    paddingTop: 6,
+  },
+  label: {
+    fontSize: 10,
+    fontWeight: '600',
+    letterSpacing: 0.3,
+  },
+  iconWrap: {
+    width: 40,
+    height: 32,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 10,
+  },
+  iconWrapActive: {
+    backgroundColor: EV.borderGlow,
+  },
+});
