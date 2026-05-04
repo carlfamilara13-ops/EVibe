@@ -1,6 +1,6 @@
 import axios from 'axios';
 
-const OCM_KEY = 'c69d1b1c-c7f3-453d-b23c-f5e51e0a5645';
+const OCM_KEY = process.env.EXPO_PUBLIC_OCM_KEY!;
 const BASE = 'https://api.openchargemap.io/v3/poi';
 
 export const fetchStations = async (latitude: number, longitude: number, distance = 10) => {

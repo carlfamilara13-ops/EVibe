@@ -1,6 +1,6 @@
 import axios from 'axios';
 
-const ORS_KEY = 'eyJvcmciOiI1YjNjZTM1OTc4NTExMTAwMDFjZjYyNDgiLCJpZCI6IjMyMmNlMTM2NWY0MDQ1MjY5NzVjMmQ3NDZjZmMyMzNlIiwiaCI6Im11cm11cjY0In0=';
+const ORS_KEY = process.env.EXPO_PUBLIC_ORS_KEY!;
 const BASE = 'https://api.openrouteservice.org/v2';
 
 const orsClient = axios.create();
