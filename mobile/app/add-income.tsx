@@ -2,20 +2,19 @@ import { useState } from 'react';
 import { View, Text, TextInput, TouchableOpacity, StyleSheet, ScrollView, Alert, ActivityIndicator } from 'react-native';
 import { useRouter } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { addExpense } from '@/services/api';
+import { addIncome } from '@/services/api';
 import { EV } from '@/constants/theme';
-import { Ionicons } from '@expo/vector-icons';
 
 const CATEGORIES = [
-  { label: 'Charging', value: 'charging', icon: 'flash', color: EV.primary },
-  { label: 'Food', value: 'food', icon: 'restaurant', color: EV.warning },
-  { label: 'Stay', value: 'accommodation', icon: 'bed', color: EV.info },
-  { label: 'Other', value: 'other', icon: 'ellipsis-horizontal', color: EV.textMuted },
+  { label: '💼 Salary', value: 'salary' },
+  { label: '🎓 Allowance', value: 'allowance' },
+  { label: '🎁 Gift', value: 'gift' },
+  { label: '📦 Other', value: 'other' },
 ];
 
-export default function AddExpenseScreen() {
+export default function AddIncomeScreen() {
   const router = useRouter();
-  const [category, setCategory] = useState('charging');
+  const [category, setCategory] = useState('salary');
   const [amount, setAmount] = useState('');
   const [description, setDescription] = useState('');
   const [loading, setLoading] = useState(false);
@@ -28,15 +27,15 @@ export default function AddExpenseScreen() {
       const user = userStr ? JSON.parse(userStr) : {};
       console.log('User:', user);
       if (!user.id) return Alert.alert('Error', 'Please login first');
-      const payload = { userId: user.id, amount: parseFloat(amount), description, category };
-      console.log('Saving expense:', payload);
-      const res = await addExpense(payload);
-      console.log('Expense saved:', res.data);
-      Alert.alert('Success', 'Expense added!');
+      const payload = { userId: user.id, amount: parseFloat(amount), description, category, date: new Date() };
+      console.log('Saving income:', payload);
+      const res = await addIncome(payload);
+      console.log('Income saved:', res.data);
+      Alert.alert('Success', 'Income added!');
       router.back();
     } catch (err: any) {
       console.log('Save error:', err?.response?.data || err?.message || err);
-      Alert.alert('Error', err?.response?.data?.error || 'Failed to save expense');
+      Alert.alert('Error', err?.response?.data?.error || 'Failed to save income');
     } finally {
       setLoading(false);
     }
@@ -48,8 +47,8 @@ export default function AddExpenseScreen() {
         <Text style={styles.backText}>← Back</Text>
       </TouchableOpacity>
 
-      <Text style={styles.title}>Add Expense</Text>
-      <Text style={styles.subtitle}>Track your spending</Text>
+      <Text style={styles.title}>Add Income</Text>
+      <Text style={styles.subtitle}>Record your earnings</Text>
 
       <Text style={styles.label}>CATEGORY</Text>
       <View style={styles.grid}>
@@ -59,7 +58,6 @@ export default function AddExpenseScreen() {
             style={[styles.chip, category === cat.value && styles.chipActive]}
             onPress={() => setCategory(cat.value)}
           >
-            <Ionicons name={cat.icon as any} size={16} color={category === cat.value ? EV.bg : cat.color} />
             <Text style={[styles.chipText, category === cat.value && styles.chipTextActive]}>{cat.label}</Text>
           </TouchableOpacity>
         ))}
@@ -81,14 +79,14 @@ export default function AddExpenseScreen() {
       <Text style={styles.label}>DESCRIPTION</Text>
       <TextInput
         style={styles.input}
-        placeholder="e.g. Shell Recharge Station"
+        placeholder="e.g. Monthly salary"
         placeholderTextColor={EV.textDim}
         value={description}
         onChangeText={setDescription}
       />
 
       <TouchableOpacity style={styles.button} onPress={save} disabled={loading}>
-        {loading ? <ActivityIndicator color={EV.bg} /> : <Text style={styles.buttonText}>Save Expense</Text>}
+        {loading ? <ActivityIndicator color={EV.bg} /> : <Text style={styles.buttonText}>Save Income</Text>}
       </TouchableOpacity>
     </ScrollView>
   );
@@ -103,10 +101,10 @@ const styles = StyleSheet.create({
   subtitle: { fontSize: 14, color: EV.textMuted, marginBottom: 28 },
   label: { color: EV.textMuted, fontSize: 11, fontWeight: '700', letterSpacing: 1.5, marginBottom: 10, marginTop: 4 },
   grid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginBottom: 20 },
-  chip: { backgroundColor: EV.bgCard, borderRadius: 12, paddingVertical: 12, paddingHorizontal: 16, borderWidth: 1, borderColor: EV.border, flexDirection: 'row', alignItems: 'center', gap: 6 },
-  chipActive: { borderColor: EV.primary, backgroundColor: EV.primary },
+  chip: { backgroundColor: EV.bgCard, borderRadius: 12, paddingVertical: 12, paddingHorizontal: 16, borderWidth: 1, borderColor: EV.border },
+  chipActive: { borderColor: EV.primary, backgroundColor: EV.bgSurface },
   chipText: { color: EV.textMuted, fontWeight: '600' },
-  chipTextActive: { color: EV.bg },
+  chipTextActive: { color: EV.primary },
   amountRow: { flexDirection: 'row', alignItems: 'center', backgroundColor: EV.bgCard, borderRadius: 12, borderWidth: 1, borderColor: EV.border, paddingHorizontal: 16, marginBottom: 16 },
   currency: { fontSize: 20, color: EV.textMuted, fontWeight: '700', marginRight: 4 },
   amountInput: { flex: 1, color: EV.text, fontSize: 20, fontWeight: '700', paddingVertical: 13 },

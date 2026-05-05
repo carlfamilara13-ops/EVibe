@@ -1,459 +1,630 @@
 import React, { useState, useEffect } from 'react';
-import {
-  View, Text, StyleSheet, TouchableOpacity,
-  ScrollView, StatusBar, TextInput, Modal, Dimensions, Alert,
-} from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView, StatusBar, Dimensions, Alert, ActivityIndicator, RefreshControl } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { EV } from '@/constants/theme';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { addExpense as apiAddExpense, getTripExpenses, deleteExpense as apiDeleteExpense } from '@/services/api';
+import { getUserExpenses, getIncomes, getMonthlySummary, getYearlySummary, getDailySummary, deleteExpense as apiDeleteExpense, deleteIncome as apiDeleteIncome } from '@/services/api';
+import { useRouter, useFocusEffect } from 'expo-router';
 
 const { width } = Dimensions.get('window');
 
-const CATEGORIES = [
+const EXPENSE_CATEGORIES = [
   { key: 'charging', label: 'Charging', icon: 'flash', color: EV.primary },
   { key: 'food', label: 'Food', icon: 'restaurant', color: EV.warning },
   { key: 'accommodation', label: 'Stay', icon: 'bed', color: EV.info },
   { key: 'other', label: 'Other', icon: 'ellipsis-horizontal', color: EV.textMuted },
 ];
 
-type Expense = { id: string; category: string; label: string; amount: number; time: string };
+const INCOME_CATEGORIES = [
+  { key: 'salary', label: 'Salary', icon: 'briefcase', color: EV.primary },
+  { key: 'allowance', label: 'Allowance', icon: 'wallet', color: EV.info },
+  { key: 'gift', label: 'Gift', icon: 'gift', color: EV.warning },
+  { key: 'other', label: 'Other', icon: 'cash', color: EV.textMuted },
+];
 
 export default function BudgetScreen() {
-  const [budget] = useState(80);
-  const [expenses, setExpenses] = useState<Expense[]>([]);
-  const [tripId, setTripId] = useState<string | null>(null);
-  const [modal, setModal] = useState(false);
-  const [newLabel, setNewLabel] = useState('');
-  const [newAmount, setNewAmount] = useState('');
-  const [newCat, setNewCat] = useState('charging');
+  const router = useRouter();
+  const [tab, setTab] = useState<'overview' | 'calendar' | 'summary'>('overview');
+  const [loading, setLoading] = useState(false);
+  const [userId, setUserId] = useState('');
+  const [totalIncome, setTotalIncome] = useState(0);
+  const [totalExpenses, setTotalExpenses] = useState(0);
+  const [incomes, setIncomes] = useState<any[]>([]);
+  const [expenses, setExpenses] = useState<any[]>([]);
+  const [selectedDate, setSelectedDate] = useState(new Date());
+  const [dailyData, setDailyData] = useState<any>(null);
+  const [monthlyData, setMonthlyData] = useState<any>(null);
+  const [yearlyData, setYearlyData] = useState<any>(null);
+  const [noUser, setNoUser] = useState(false);
 
   useEffect(() => {
-    loadExpenses();
+    loadData();
   }, []);
 
-  const loadExpenses = async () => {
+  useFocusEffect(
+    React.useCallback(() => {
+      loadData();
+    }, [])
+  );
+
+  const loadData = async () => {
+    setLoading(true);
     try {
-      const trip = await AsyncStorage.getItem('activeTrip');
-      if (!trip) return;
-      const parsed = JSON.parse(trip);
-      setTripId(parsed._id);
-      const res = await getTripExpenses(parsed._id);
-      const mapped = res.data.map((e: any) => ({
-        id: e._id,
-        category: e.category,
-        label: e.description,
-        amount: e.amount,
-        time: new Date(e.createdAt).toLocaleTimeString('en', { hour: '2-digit', minute: '2-digit' }),
-      }));
-      setExpenses(mapped);
-    } catch (err) {
-      console.log('No active trip found');
+      const userStr = await AsyncStorage.getItem('user');
+      const user = userStr ? JSON.parse(userStr) : {};
+      console.log('User from storage:', user);
+      if (!user.id) {
+        console.log('No user ID found');
+        setNoUser(true);
+        setLoading(false);
+        return;
+      }
+      setUserId(user.id);
+
+      const now = new Date();
+      const [incRes, expRes, monthRes, yearRes] = await Promise.all([
+        getIncomes(user.id),
+        getUserExpenses(user.id),
+        getMonthlySummary(user.id, now.getMonth() + 1, now.getFullYear()),
+        getYearlySummary(user.id, now.getFullYear()),
+      ]);
+
+      console.log('Data loaded:', { incomes: incRes.data.length, expenses: expRes.data.length });
+      setIncomes(incRes.data);
+      setExpenses(expRes.data);
+      setTotalIncome(incRes.data.reduce((s: number, i: any) => s + i.amount, 0));
+      setTotalExpenses(expRes.data.reduce((s: number, e: any) => s + e.amount, 0));
+      setMonthlyData(monthRes.data);
+      setYearlyData(yearRes.data);
+    } catch (err: any) {
+      console.log('Load error:', err?.response?.data || err?.message || err);
+      Alert.alert('Error', 'Failed to load data. Please try again.');
+    } finally {
+      setLoading(false);
     }
   };
 
-  const spent = expenses.reduce((s, e) => s + e.amount, 0);
-  const remaining = budget - spent;
-  const progress = Math.min(spent / budget, 1);
-  const isOver = remaining < 0;
-  const progressColor = progress > 0.85 ? EV.danger : progress > 0.6 ? EV.warning : EV.primary;
-
-  const catTotal = (key: string) => expenses.filter(e => e.category === key).reduce((s, e) => s + e.amount, 0);
-  const getCat = (key: string) => CATEGORIES.find(c => c.key === key)!;
-
-  const addExpense = async () => {
-    if (!newLabel || !newAmount) return;
-    if (!tripId) return Alert.alert('No active trip', 'Start a trip first');
+  const loadDailyData = async (date: Date) => {
     try {
-      const res = await apiAddExpense({
-        tripId,
-        category: newCat,
-        description: newLabel,
-        amount: parseFloat(newAmount),
-      });
-      setExpenses(prev => [...prev, {
-        id: res.data._id,
-        category: newCat,
-        label: newLabel,
-        amount: parseFloat(newAmount),
-        time: new Date().toLocaleTimeString('en', { hour: '2-digit', minute: '2-digit' }),
-      }]);
-      setNewLabel('');
-      setNewAmount('');
-      setModal(false);
+      const year = date.getFullYear();
+      const month = String(date.getMonth() + 1).padStart(2, '0');
+      const day = String(date.getDate()).padStart(2, '0');
+      const dateStr = `${year}-${month}-${day}`;
+      const res = await getDailySummary(userId, dateStr);
+      setDailyData(res.data);
     } catch (err) {
-      Alert.alert('Error', 'Failed to save expense');
+      console.log('Daily load error:', err);
     }
   };
+
+  const balance = totalIncome - totalExpenses;
+  const isOverBudget = balance < 0;
+  const isLowBalance = totalIncome > 0 && balance < totalIncome * 0.2 && balance > 0;
+  const balanceColor = isOverBudget ? EV.danger : isLowBalance ? EV.warning : EV.primary;
+
+  const deleteExpense = (id: string) => {
+    Alert.alert('Delete', 'Remove this expense?', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Delete',
+        style: 'destructive',
+        onPress: async () => {
+          try {
+            await apiDeleteExpense(id);
+            loadData();
+          } catch {
+            Alert.alert('Error', 'Failed to delete');
+          }
+        },
+      },
+    ]);
+  };
+
+  const deleteIncome = (id: string) => {
+    Alert.alert('Delete', 'Remove this income?', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Delete',
+        style: 'destructive',
+        onPress: async () => {
+          try {
+            await apiDeleteIncome(id);
+            loadData();
+          } catch {
+            Alert.alert('Error', 'Failed to delete');
+          }
+        },
+      },
+    ]);
+  };
+
+  const renderOverview = () => (
+    <ScrollView showsVerticalScrollIndicator={false}>
+      {isOverBudget && (
+        <View style={styles.alertBanner}>
+          <Ionicons name="warning" size={20} color={EV.danger} />
+          <Text style={styles.alertText}> You are over budget by ₱{Math.abs(balance).toFixed(2)}</Text>
+        </View>
+      )}
+
+      <View style={styles.balanceCard}>
+        <View style={styles.balanceGlow} />
+        <Text style={styles.balanceLabel}>CURRENT BALANCE</Text>
+        <Text style={[styles.balanceAmount, { color: balanceColor }]}>₱{balance.toFixed(2)}</Text>
+        <View style={styles.balanceRow}>
+          <View style={styles.balanceItem}>
+            <Ionicons name="arrow-down-circle" size={20} color={EV.primary} />
+            <Text style={styles.balanceItemLabel}>Income</Text>
+            <Text style={styles.balanceItemValue}>₱{totalIncome.toFixed(2)}</Text>
+          </View>
+          <View style={styles.balanceDivider} />
+          <View style={styles.balanceItem}>
+            <Ionicons name="arrow-up-circle" size={20} color={EV.danger} />
+            <Text style={styles.balanceItemLabel}>Expenses</Text>
+            <Text style={styles.balanceItemValue}>₱{totalExpenses.toFixed(2)}</Text>
+          </View>
+        </View>
+      </View>
+
+      <View style={styles.section}>
+        <View style={styles.sectionHeader}>
+          <Text style={styles.sectionTitle}>RECENT INCOME</Text>
+          <TouchableOpacity onPress={() => router.push('/add-income')}>
+            <Ionicons name="add-circle" size={24} color={EV.primary} />
+          </TouchableOpacity>
+        </View>
+        {incomes.slice(0, 5).map((inc) => {
+          const cat = INCOME_CATEGORIES.find((c) => c.key === inc.category) || INCOME_CATEGORIES[3];
+          return (
+            <View key={inc._id} style={styles.transactionRow}>
+              <View style={[styles.transactionIcon, { backgroundColor: cat.color + '18' }]}>
+                <Ionicons name={cat.icon as any} size={18} color={cat.color} />
+              </View>
+              <View style={styles.transactionInfo}>
+                <Text style={styles.transactionLabel}>{inc.description || cat.label}</Text>
+                <Text style={styles.transactionDate}>{new Date(inc.date).toLocaleDateString()}</Text>
+              </View>
+              <Text style={[styles.transactionAmount, { color: EV.primary }]}>+₱{inc.amount.toFixed(2)}</Text>
+              <TouchableOpacity onPress={() => deleteIncome(inc._id)} style={{ padding: 4 }}>
+                <Ionicons name="trash-outline" size={16} color={EV.danger} />
+              </TouchableOpacity>
+            </View>
+          );
+        })}
+      </View>
+
+      <View style={styles.section}>
+        <View style={styles.sectionHeader}>
+          <Text style={styles.sectionTitle}>RECENT EXPENSES</Text>
+          <TouchableOpacity onPress={() => router.push('/add-expense')}>
+            <Ionicons name="add-circle" size={24} color={EV.danger} />
+          </TouchableOpacity>
+        </View>
+        {expenses.slice(0, 5).map((exp) => {
+          const cat = EXPENSE_CATEGORIES.find((c) => c.key === exp.category) || EXPENSE_CATEGORIES[3];
+          return (
+            <View key={exp._id} style={styles.transactionRow}>
+              <View style={[styles.transactionIcon, { backgroundColor: cat.color + '18' }]}>
+                <Ionicons name={cat.icon as any} size={18} color={cat.color} />
+              </View>
+              <View style={styles.transactionInfo}>
+                <Text style={styles.transactionLabel}>{exp.description || cat.label}</Text>
+                <Text style={styles.transactionDate}>{new Date(exp.createdAt).toLocaleDateString()}</Text>
+              </View>
+              <Text style={[styles.transactionAmount, { color: EV.danger }]}>-₱{exp.amount.toFixed(2)}</Text>
+              <TouchableOpacity onPress={() => deleteExpense(exp._id)} style={{ padding: 4 }}>
+                <Ionicons name="trash-outline" size={16} color={EV.danger} />
+              </TouchableOpacity>
+            </View>
+          );
+        })}
+      </View>
+      <View style={{ height: 24 }} />
+    </ScrollView>
+  );
+
+  const renderCalendar = () => {
+    const year = selectedDate.getFullYear();
+    const month = selectedDate.getMonth();
+    const firstDay = new Date(year, month, 1).getDay();
+    const daysInMonth = new Date(year, month + 1, 0).getDate();
+    const today = new Date();
+    const isCurrentMonth = today.getFullYear() === year && today.getMonth() === month;
+    
+    const days = [];
+    for (let i = 0; i < firstDay; i++) days.push(null);
+    for (let i = 1; i <= daysInMonth; i++) days.push(i);
+
+    const getDayData = (day: number) => {
+      const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+      return monthlyData?.dailyMap?.[dateStr] || { income: 0, expenses: 0 };
+    };
+
+    const isToday = (day: number) => {
+      return isCurrentMonth && day === today.getDate();
+    };
+
+    const isSelected = (day: number) => {
+      return selectedDate.getDate() === day && 
+             selectedDate.getMonth() === month && 
+             selectedDate.getFullYear() === year;
+    };
+
+    return (
+      <ScrollView showsVerticalScrollIndicator={false}>
+        <View style={styles.calendarHeader}>
+          <TouchableOpacity 
+            onPress={() => {
+              const newDate = new Date(year, month - 1);
+              setSelectedDate(newDate);
+              loadData();
+            }}
+            style={styles.calendarNavBtn}
+          >
+            <Ionicons name="chevron-back" size={24} color={EV.primary} />
+          </TouchableOpacity>
+          <View style={styles.calendarTitleContainer}>
+            <Text style={styles.calendarTitle}>
+              {selectedDate.toLocaleDateString('en', { month: 'long' })}
+            </Text>
+            <Text style={styles.calendarYear}>{year}</Text>
+          </View>
+          <TouchableOpacity 
+            onPress={() => {
+              const newDate = new Date(year, month + 1);
+              setSelectedDate(newDate);
+              loadData();
+            }}
+            style={styles.calendarNavBtn}
+          >
+            <Ionicons name="chevron-forward" size={24} color={EV.primary} />
+          </TouchableOpacity>
+        </View>
+
+        <View style={styles.calendarLegend}>
+          <View style={styles.legendItem}>
+            <View style={[styles.legendDot, { backgroundColor: EV.primary }]} />
+            <Text style={styles.legendText}>Income</Text>
+          </View>
+          <View style={styles.legendItem}>
+            <View style={[styles.legendDot, { backgroundColor: EV.danger }]} />
+            <Text style={styles.legendText}>Expense</Text>
+          </View>
+        </View>
+
+        <View style={styles.calendarGrid}>
+          {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((d, i) => (
+            <View key={i} style={styles.calendarDayLabelContainer}>
+              <Text style={styles.calendarDayLabel}>{d}</Text>
+            </View>
+          ))}
+          {days.map((day, i) => {
+            if (!day) return <View key={`empty-${i}`} style={styles.calendarDayEmpty} />;
+            const data = getDayData(day);
+            const hasIncome = data.income > 0;
+            const hasExpense = data.expenses > 0;
+            const isTodayDate = isToday(day);
+            const isSelectedDate = isSelected(day);
+            const hasActivity = hasIncome || hasExpense;
+            
+            return (
+              <View key={`day-${day}`} style={styles.calendarDayCell}>
+                <TouchableOpacity
+                  style={[
+                    styles.calendarDayCellInner,
+                    isTodayDate && styles.calendarDayToday,
+                    isSelectedDate && styles.calendarDaySelected,
+                    hasActivity && styles.calendarDayActive,
+                  ]}
+                  onPress={() => {
+                    const d = new Date(year, month, day);
+                    setSelectedDate(d);
+                    loadDailyData(d);
+                  }}
+                >
+                  <Text style={[
+                    styles.calendarDayText,
+                    isTodayDate && styles.calendarDayTextToday,
+                    isSelectedDate && styles.calendarDayTextSelected,
+                  ]}>
+                    {day}
+                  </Text>
+                  {hasActivity && (
+                    <View style={styles.calendarDots}>
+                      {hasIncome && <View style={[styles.calendarDot, { backgroundColor: EV.primary }]} />}
+                      {hasExpense && <View style={[styles.calendarDot, { backgroundColor: EV.danger }]} />}
+                    </View>
+                  )}
+                  {(hasIncome || hasExpense) && (
+                    <Text style={styles.calendarDayAmount}>
+                      ₱{(data.income - data.expenses).toFixed(0)}
+                    </Text>
+                  )}
+                </TouchableOpacity>
+              </View>
+            );
+          })}
+        </View>
+
+        {dailyData && (
+          <View style={styles.dailyBreakdown}>
+            <View style={styles.dailyHeader}>
+              <View>
+                <Text style={styles.dailyTitle}>
+                  {new Date(dailyData.date).toLocaleDateString('en', { weekday: 'long' })}
+                </Text>
+                <Text style={styles.dailySubtitle}>
+                  {new Date(dailyData.date).toLocaleDateString('en', { month: 'long', day: 'numeric', year: 'numeric' })}
+                </Text>
+              </View>
+              <TouchableOpacity onPress={() => setDailyData(null)} style={styles.dailyCloseBtn}>
+                <Ionicons name="close" size={20} color={EV.textMuted} />
+              </TouchableOpacity>
+            </View>
+
+            <View style={styles.dailyStats}>
+              <View style={[styles.dailyStatCard, { borderColor: EV.primary + '40' }]}>
+                <Ionicons name="arrow-down-circle" size={24} color={EV.primary} />
+                <Text style={styles.dailyStatLabel}>Income</Text>
+                <Text style={[styles.dailyStatValue, { color: EV.primary }]}>₱{dailyData.totalIncome.toFixed(2)}</Text>
+              </View>
+              <View style={[styles.dailyStatCard, { borderColor: EV.danger + '40' }]}>
+                <Ionicons name="arrow-up-circle" size={24} color={EV.danger} />
+                <Text style={styles.dailyStatLabel}>Expenses</Text>
+                <Text style={[styles.dailyStatValue, { color: EV.danger }]}>₱{dailyData.totalExpenses.toFixed(2)}</Text>
+              </View>
+              <View style={[styles.dailyStatCard, { borderColor: dailyData.balance >= 0 ? EV.primary + '40' : EV.danger + '40' }]}>
+                <Ionicons name="wallet" size={24} color={dailyData.balance >= 0 ? EV.primary : EV.danger} />
+                <Text style={styles.dailyStatLabel}>Balance</Text>
+                <Text style={[styles.dailyStatValue, { color: dailyData.balance >= 0 ? EV.primary : EV.danger }]}>
+                  ₱{dailyData.balance.toFixed(2)}
+                </Text>
+              </View>
+            </View>
+
+            {(dailyData.incomes.length > 0 || dailyData.expenses.length > 0) && (
+              <>
+                <Text style={[styles.sectionTitle, { marginTop: 20, marginBottom: 12 }]}>TRANSACTIONS</Text>
+                {dailyData.incomes.map((inc: any) => {
+                  const cat = INCOME_CATEGORIES.find((c) => c.key === inc.category) || INCOME_CATEGORIES[3];
+                  return (
+                    <View key={inc._id} style={styles.transactionRow}>
+                      <View style={[styles.transactionIcon, { backgroundColor: cat.color + '18' }]}>
+                        <Ionicons name={cat.icon as any} size={18} color={cat.color} />
+                      </View>
+                      <View style={styles.transactionInfo}>
+                        <Text style={styles.transactionLabel}>{inc.description || cat.label}</Text>
+                        <Text style={styles.transactionDate}>{new Date(inc.date).toLocaleTimeString('en', { hour: '2-digit', minute: '2-digit' })}</Text>
+                      </View>
+                      <Text style={[styles.transactionAmount, { color: EV.primary }]}>+₱{inc.amount.toFixed(2)}</Text>
+                    </View>
+                  );
+                })}
+                {dailyData.expenses.map((exp: any) => {
+                  const cat = EXPENSE_CATEGORIES.find((c) => c.key === exp.category) || EXPENSE_CATEGORIES[3];
+                  return (
+                    <View key={exp._id} style={styles.transactionRow}>
+                      <View style={[styles.transactionIcon, { backgroundColor: cat.color + '18' }]}>
+                        <Ionicons name={cat.icon as any} size={18} color={cat.color} />
+                      </View>
+                      <View style={styles.transactionInfo}>
+                        <Text style={styles.transactionLabel}>{exp.description || cat.label}</Text>
+                        <Text style={styles.transactionDate}>{new Date(exp.createdAt).toLocaleTimeString('en', { hour: '2-digit', minute: '2-digit' })}</Text>
+                      </View>
+                      <Text style={[styles.transactionAmount, { color: EV.danger }]}>-₱{exp.amount.toFixed(2)}</Text>
+                    </View>
+                  );
+                })}
+              </>
+            )}
+
+            {dailyData.incomes.length === 0 && dailyData.expenses.length === 0 && (
+              <View style={styles.emptyDaily}>
+                <Ionicons name="calendar-outline" size={48} color={EV.textDim} />
+                <Text style={styles.emptyDailyText}>No transactions on this day</Text>
+              </View>
+            )}
+          </View>
+        )}
+        <View style={{ height: 24 }} />
+      </ScrollView>
+    );
+  };
+
+  const renderSummary = () => (
+    <ScrollView showsVerticalScrollIndicator={false}>
+      {monthlyData && (
+        <View style={styles.summaryCard}>
+          <Text style={styles.summaryTitle}>MONTHLY SUMMARY</Text>
+          <Text style={styles.summarySubtitle}>
+            {new Date(monthlyData.year, monthlyData.month - 1).toLocaleDateString('en', { month: 'long', year: 'numeric' })}
+          </Text>
+          <View style={styles.summaryRow}>
+            <View style={styles.summaryItem}>
+              <Text style={styles.summaryLabel}>Income</Text>
+              <Text style={[styles.summaryValue, { color: EV.primary }]}>₱{monthlyData.totalIncome.toFixed(2)}</Text>
+              {monthlyData.incomeChange && (
+                <Text style={[styles.summaryChange, { color: parseFloat(monthlyData.incomeChange) >= 0 ? EV.primary : EV.danger }]}>
+                  {parseFloat(monthlyData.incomeChange) >= 0 ? '↑' : '↓'} {Math.abs(parseFloat(monthlyData.incomeChange))}%
+                </Text>
+              )}
+            </View>
+            <View style={styles.summaryItem}>
+              <Text style={styles.summaryLabel}>Expenses</Text>
+              <Text style={[styles.summaryValue, { color: EV.danger }]}>₱{monthlyData.totalExpenses.toFixed(2)}</Text>
+              {monthlyData.expenseChange && (
+                <Text style={[styles.summaryChange, { color: parseFloat(monthlyData.expenseChange) >= 0 ? EV.danger : EV.primary }]}>
+                  {parseFloat(monthlyData.expenseChange) >= 0 ? '↑' : '↓'} {Math.abs(parseFloat(monthlyData.expenseChange))}%
+                </Text>
+              )}
+            </View>
+            <View style={styles.summaryItem}>
+              <Text style={styles.summaryLabel}>Balance</Text>
+              <Text style={[styles.summaryValue, { color: monthlyData.balance >= 0 ? EV.primary : EV.danger }]}>
+                ₱{monthlyData.balance.toFixed(2)}
+              </Text>
+            </View>
+          </View>
+        </View>
+      )}
+
+      {yearlyData && (
+        <View style={styles.summaryCard}>
+          <Text style={styles.summaryTitle}>YEARLY SUMMARY</Text>
+          <Text style={styles.summarySubtitle}>{yearlyData.year}</Text>
+          <View style={styles.summaryRow}>
+            <View style={styles.summaryItem}>
+              <Text style={styles.summaryLabel}>Income</Text>
+              <Text style={[styles.summaryValue, { color: EV.primary }]}>₱{yearlyData.totalIncome.toFixed(2)}</Text>
+            </View>
+            <View style={styles.summaryItem}>
+              <Text style={styles.summaryLabel}>Expenses</Text>
+              <Text style={[styles.summaryValue, { color: EV.danger }]}>₱{yearlyData.totalExpenses.toFixed(2)}</Text>
+            </View>
+            <View style={styles.summaryItem}>
+              <Text style={styles.summaryLabel}>Balance</Text>
+              <Text style={[styles.summaryValue, { color: yearlyData.balance >= 0 ? EV.primary : EV.danger }]}>
+                ₱{yearlyData.balance.toFixed(2)}
+              </Text>
+            </View>
+          </View>
+
+          <Text style={[styles.sectionTitle, { marginTop: 20 }]}>MONTHLY TRENDS</Text>
+          {yearlyData.monthly.map((m: any) => (
+            <View key={m.month} style={styles.trendRow}>
+              <Text style={styles.trendMonth}>{new Date(yearlyData.year, m.month - 1).toLocaleDateString('en', { month: 'short' })}</Text>
+              <View style={styles.trendBars}>
+                <View style={[styles.trendBar, { width: `${(m.income / Math.max(...yearlyData.monthly.map((x: any) => x.income), 1)) * 100}%`, backgroundColor: EV.primary }]} />
+                <View style={[styles.trendBar, { width: `${(m.expenses / Math.max(...yearlyData.monthly.map((x: any) => x.expenses), 1)) * 100}%`, backgroundColor: EV.danger }]} />
+              </View>
+              <Text style={[styles.trendBalance, { color: m.balance >= 0 ? EV.primary : EV.danger }]}>₱{m.balance.toFixed(0)}</Text>
+            </View>
+          ))}
+        </View>
+      )}
+      <View style={{ height: 24 }} />
+    </ScrollView>
+  );
 
   return (
     <SafeAreaView style={styles.safe}>
       <StatusBar barStyle="light-content" backgroundColor={EV.bg} />
 
       <View style={styles.header}>
-        <View>
-          <Text style={styles.headerTitle}>Budget Tracker</Text>
-          <Text style={styles.headerSub}>Track your trip expenses</Text>
-        </View>
-        <TouchableOpacity style={styles.addBtn} onPress={() => setModal(true)}>
-          <Ionicons name="add" size={22} color={EV.bg} />
+        <Text style={styles.headerTitle}>Budget Tracker</Text>
+      </View>
+
+      <View style={styles.tabs}>
+        <TouchableOpacity style={[styles.tab, tab === 'overview' && styles.tabActive]} onPress={() => setTab('overview')}>
+          <Text style={[styles.tabText, tab === 'overview' && styles.tabTextActive]}>Overview</Text>
+        </TouchableOpacity>
+        <TouchableOpacity style={[styles.tab, tab === 'calendar' && styles.tabActive]} onPress={() => setTab('calendar')}>
+          <Text style={[styles.tabText, tab === 'calendar' && styles.tabTextActive]}>Calendar</Text>
+        </TouchableOpacity>
+        <TouchableOpacity style={[styles.tab, tab === 'summary' && styles.tabActive]} onPress={() => setTab('summary')}>
+          <Text style={[styles.tabText, tab === 'summary' && styles.tabTextActive]}>Summary</Text>
         </TouchableOpacity>
       </View>
 
-      <ScrollView style={styles.scroll} showsVerticalScrollIndicator={false}>
-
-        {/* Overview hero card */}
-        <View style={styles.heroCard}>
-          <View style={styles.heroGlow} />
-
-          <View style={styles.heroTop}>
-            <View>
-              <Text style={styles.heroLabel}>TOTAL BUDGET</Text>
-              <Text style={styles.heroBudget}>${budget.toFixed(2)}</Text>
-            </View>
-            <View style={[styles.remainBox, isOver && styles.remainBoxOver]}>
-              <Text style={[styles.remainLabel, isOver && { color: EV.danger }]}>
-                {isOver ? 'Over by' : 'Left'}
-              </Text>
-              <Text style={[styles.remainAmount, isOver && { color: EV.danger }]}>
-                ${Math.abs(remaining).toFixed(2)}
-              </Text>
-            </View>
-          </View>
-
-          {/* Big progress bar */}
-          <View style={styles.progressTrack}>
-            <View style={[styles.progressFill, { width: `${progress * 100}%` as any, backgroundColor: progressColor }]}>
-              <View style={[styles.progressGlow, { backgroundColor: progressColor }]} />
-            </View>
-          </View>
-
-          <View style={styles.progressMeta}>
-            <Text style={styles.progressMetaText}>
-              <Text style={{ color: progressColor, fontWeight: '700' }}>${spent.toFixed(2)}</Text>
-              {' '}spent of ${budget}
-            </Text>
-            <Text style={styles.progressMetaPct}>{Math.round(progress * 100)}%</Text>
-          </View>
+      {loading ? (
+        <View style={styles.loader}>
+          <ActivityIndicator size="large" color={EV.primary} />
         </View>
-
-        {/* Category cards */}
-        <Text style={styles.sectionTitle}>BY CATEGORY</Text>
-        <View style={styles.catGrid}>
-          {CATEGORIES.map(cat => {
-            const total = catTotal(cat.key);
-            const pct = budget > 0 ? Math.min(total / budget, 1) : 0;
-            const count = expenses.filter(e => e.category === cat.key).length;
-            return (
-              <View key={cat.key} style={styles.catCard}>
-                <View style={styles.catCardTop}>
-                  <View style={[styles.catIconBox, { backgroundColor: cat.color + '18' }]}>
-                    <Ionicons name={cat.icon as any} size={20} color={cat.color} />
-                  </View>
-                  <Text style={styles.catCount}>{count} items</Text>
-                </View>
-                <Text style={styles.catLabel}>{cat.label}</Text>
-                <Text style={[styles.catAmount, { color: cat.color }]}>${total.toFixed(2)}</Text>
-                <View style={styles.catTrack}>
-                  <View style={[styles.catFill, { width: `${pct * 100}%` as any, backgroundColor: cat.color }]} />
-                </View>
-              </View>
-            );
-          })}
+      ) : noUser ? (
+        <View style={styles.loader}>
+          <Ionicons name="person-circle-outline" size={64} color={EV.textMuted} />
+          <Text style={styles.emptyText}>Please login to view budget</Text>
         </View>
-
-        {/* Expense list */}
-        <View style={styles.expenseHeader}>
-          <Text style={styles.sectionTitle}>EXPENSES</Text>
-          <Text style={styles.expenseCount}>{expenses.length} total</Text>
+      ) : (
+        <View style={styles.content}>
+          {tab === 'overview' && renderOverview()}
+          {tab === 'calendar' && renderCalendar()}
+          {tab === 'summary' && renderSummary()}
         </View>
-
-        {[...expenses].reverse().map((exp, i) => {
-          const cat = getCat(exp.category);
-          return (
-            <View key={exp.id} style={[styles.expRow, i === 0 && styles.expRowFirst]}>
-              <View style={[styles.expIconBox, { backgroundColor: cat.color + '18' }]}>
-                <Ionicons name={cat.icon as any} size={18} color={cat.color} />
-              </View>
-              <View style={styles.expInfo}>
-                <Text style={styles.expLabel}>{exp.label}</Text>
-                <View style={styles.expMeta}>
-                  <View style={[styles.expCatChip, { backgroundColor: cat.color + '18' }]}>
-                    <Text style={[styles.expCatText, { color: cat.color }]}>{cat.label}</Text>
-                  </View>
-                  <Text style={styles.expTime}>{exp.time}</Text>
-                </View>
-              </View>
-              <Text style={styles.expAmount}>-${exp.amount.toFixed(2)}</Text>
-            </View>
-          );
-        })}
-
-        <View style={{ height: 24 }} />
-      </ScrollView>
-
-      {/* Add Expense Modal */}
-      <Modal visible={modal} transparent animationType="slide">
-        <View style={styles.overlay}>
-          <TouchableOpacity style={styles.overlayBg} onPress={() => setModal(false)} />
-          <View style={styles.sheet}>
-            <View style={styles.sheetHandle} />
-            <View style={styles.sheetHeader}>
-              <Text style={styles.sheetTitle}>Add Expense</Text>
-              <TouchableOpacity style={styles.closeBtn} onPress={() => setModal(false)}>
-                <Ionicons name="close" size={18} color={EV.textMuted} />
-              </TouchableOpacity>
-            </View>
-
-            <Text style={styles.fieldLabel}>CATEGORY</Text>
-            <View style={styles.catPicker}>
-              {CATEGORIES.map(cat => (
-                <TouchableOpacity
-                  key={cat.key}
-                  style={[styles.catChip, newCat === cat.key && { backgroundColor: cat.color, borderColor: cat.color }]}
-                  onPress={() => setNewCat(cat.key)}>
-                  <Ionicons name={cat.icon as any} size={14} color={newCat === cat.key ? EV.bg : cat.color} />
-                  <Text style={[styles.catChipText, newCat === cat.key && { color: EV.bg }]}>{cat.label}</Text>
-                </TouchableOpacity>
-              ))}
-            </View>
-
-            <Text style={styles.fieldLabel}>DESCRIPTION</Text>
-            <TextInput
-              style={styles.field}
-              placeholder="e.g. Lunch stop"
-              placeholderTextColor={EV.textDim}
-              value={newLabel}
-              onChangeText={setNewLabel}
-            />
-
-            <Text style={styles.fieldLabel}>AMOUNT</Text>
-            <View style={styles.amountField}>
-              <Text style={styles.amountCurrency}>$</Text>
-              <TextInput
-                style={styles.amountInput}
-                placeholder="0.00"
-                placeholderTextColor={EV.textDim}
-                value={newAmount}
-                onChangeText={setNewAmount}
-                keyboardType="numeric"
-              />
-            </View>
-
-            <TouchableOpacity style={styles.saveBtn} onPress={addExpense}>
-              <Ionicons name="checkmark-circle" size={18} color={EV.bg} />
-              <Text style={styles.saveBtnText}>Save Expense</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      </Modal>
+      )}
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: EV.bg },
-  scroll: { flex: 1 },
-
-  header: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: 20,
-    paddingVertical: 14,
-    borderBottomWidth: 1,
-    borderBottomColor: EV.border,
-  },
+  header: { paddingHorizontal: 20, paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: EV.border },
   headerTitle: { fontSize: 20, fontWeight: '800', color: EV.text },
-  headerSub: { fontSize: 12, color: EV.textMuted, marginTop: 2 },
-  addBtn: {
-    width: 40,
-    height: 40,
-    borderRadius: 12,
-    backgroundColor: EV.primary,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-
-  heroCard: {
-    margin: 16,
-    backgroundColor: EV.bgCard,
-    borderRadius: 22,
-    padding: 20,
-    borderWidth: 1,
-    borderColor: EV.border,
-    overflow: 'hidden',
-  },
-  heroGlow: {
-    position: 'absolute',
-    top: -50,
-    right: -50,
-    width: 180,
-    height: 180,
-    borderRadius: 90,
-    backgroundColor: EV.primary + '0C',
-  },
-  heroTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 20 },
-  heroLabel: { fontSize: 10, color: EV.textMuted, fontWeight: '700', letterSpacing: 1.5, marginBottom: 4 },
-  heroBudget: { fontSize: 34, fontWeight: '900', color: EV.text },
-  remainBox: {
-    backgroundColor: EV.bgSurface,
-    borderRadius: 14,
-    padding: 12,
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: EV.primaryDark,
-    minWidth: 90,
-  },
-  remainBoxOver: { borderColor: EV.danger },
-  remainLabel: { fontSize: 11, color: EV.textMuted, fontWeight: '600', marginBottom: 2 },
-  remainAmount: { fontSize: 20, fontWeight: '900', color: EV.primary },
-  progressTrack: {
-    height: 12,
-    backgroundColor: EV.bgSurface,
-    borderRadius: 6,
-    overflow: 'hidden',
-    marginBottom: 8,
-  },
-  progressFill: { height: '100%', borderRadius: 6, position: 'relative' },
-  progressGlow: { position: 'absolute', right: 0, top: 0, bottom: 0, width: 20, opacity: 0.5, borderRadius: 6 },
-  progressMeta: { flexDirection: 'row', justifyContent: 'space-between' },
-  progressMetaText: { fontSize: 12, color: EV.textMuted },
-  progressMetaPct: { fontSize: 12, color: EV.textMuted, fontWeight: '700' },
-
-  sectionTitle: {
-    fontSize: 11,
-    fontWeight: '700',
-    color: EV.primary,
-    letterSpacing: 1.5,
-    marginHorizontal: 16,
-    marginBottom: 12,
-  },
-  catGrid: { flexDirection: 'row', flexWrap: 'wrap', marginHorizontal: 12, gap: 10, marginBottom: 24 },
-  catCard: {
-    width: (width - 44) / 2,
-    backgroundColor: EV.bgCard,
-    borderRadius: 18,
-    padding: 16,
-    borderWidth: 1,
-    borderColor: EV.border,
-    gap: 6,
-  },
-  catCardTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 },
-  catIconBox: { width: 40, height: 40, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
-  catCount: { fontSize: 10, color: EV.textDim, fontWeight: '600' },
-  catLabel: { fontSize: 13, color: EV.textMuted, fontWeight: '600' },
-  catAmount: { fontSize: 22, fontWeight: '900' },
-  catTrack: { height: 4, backgroundColor: EV.bgSurface, borderRadius: 2, overflow: 'hidden', marginTop: 4 },
-  catFill: { height: '100%', borderRadius: 2 },
-
-  expenseHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginHorizontal: 16,
-    marginBottom: 12,
-  },
-  expenseCount: { fontSize: 12, color: EV.textMuted },
-  expRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    marginHorizontal: 16,
-    marginBottom: 8,
-    backgroundColor: EV.bgCard,
-    borderRadius: 16,
-    padding: 14,
-    borderWidth: 1,
-    borderColor: EV.border,
-  },
-  expRowFirst: { borderColor: EV.border },
-  expIconBox: { width: 42, height: 42, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
-  expInfo: { flex: 1 },
-  expLabel: { fontSize: 14, fontWeight: '700', color: EV.text, marginBottom: 5 },
-  expMeta: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  expCatChip: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6 },
-  expCatText: { fontSize: 10, fontWeight: '700' },
-  expTime: { fontSize: 11, color: EV.textDim },
-  expAmount: { fontSize: 16, fontWeight: '800', color: EV.danger },
-
-  // Modal
-  overlay: { flex: 1, justifyContent: 'flex-end' },
-  overlayBg: { ...StyleSheet.absoluteFillObject, backgroundColor: '#000000BB' },
-  sheet: {
-    backgroundColor: EV.bgCard,
-    borderTopLeftRadius: 28,
-    borderTopRightRadius: 28,
-    padding: 24,
-    paddingBottom: 36,
-    borderWidth: 1,
-    borderBottomWidth: 0,
-    borderColor: EV.border,
-  },
-  sheetHandle: {
-    width: 40,
-    height: 4,
-    borderRadius: 2,
-    backgroundColor: EV.border,
-    alignSelf: 'center',
-    marginBottom: 20,
-  },
-  sheetHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 },
-  sheetTitle: { fontSize: 20, fontWeight: '800', color: EV.text },
-  closeBtn: {
-    width: 32,
-    height: 32,
-    borderRadius: 10,
-    backgroundColor: EV.bgSurface,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  fieldLabel: { fontSize: 10, color: EV.textMuted, fontWeight: '700', letterSpacing: 1.5, marginBottom: 10 },
-  catPicker: { flexDirection: 'row', gap: 8, marginBottom: 20, flexWrap: 'wrap' },
-  catChip: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 20,
-    backgroundColor: EV.bgSurface,
-    borderWidth: 1,
-    borderColor: EV.border,
-  },
-  catChipText: { fontSize: 13, color: EV.textMuted, fontWeight: '600' },
-  field: {
-    backgroundColor: EV.bgSurface,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: EV.border,
-    color: EV.text,
-    fontSize: 15,
-    paddingHorizontal: 16,
-    paddingVertical: 13,
-    marginBottom: 16,
-  },
-  amountField: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: EV.bgSurface,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: EV.border,
-    paddingHorizontal: 16,
-    marginBottom: 20,
-  },
-  amountCurrency: { fontSize: 20, color: EV.textMuted, fontWeight: '700', marginRight: 4 },
-  amountInput: { flex: 1, color: EV.text, fontSize: 20, fontWeight: '700', paddingVertical: 13 },
-  saveBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-    backgroundColor: EV.primary,
-    borderRadius: 14,
-    paddingVertical: 16,
-  },
-  saveBtnText: { color: EV.bg, fontWeight: '800', fontSize: 16 },
+  tabs: { flexDirection: 'row', paddingHorizontal: 16, paddingVertical: 12, gap: 8, borderBottomWidth: 1, borderBottomColor: EV.border },
+  tab: { flex: 1, paddingVertical: 10, alignItems: 'center', borderRadius: 10, backgroundColor: EV.bgCard },
+  tabActive: { backgroundColor: EV.primary },
+  tabText: { fontSize: 13, fontWeight: '700', color: EV.textMuted },
+  tabTextActive: { color: EV.bg },
+  content: { flex: 1, paddingHorizontal: 16, paddingTop: 16 },
+  loader: { flex: 1, justifyContent: 'center', alignItems: 'center', gap: 16 },
+  emptyText: { fontSize: 16, color: EV.textMuted, fontWeight: '600' },
+  alertBanner: { flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: EV.danger + '18', padding: 16, borderRadius: 12, marginBottom: 16, borderWidth: 1, borderColor: EV.danger },
+  alertText: { flex: 1, color: EV.danger, fontWeight: '700', fontSize: 14 },
+  balanceCard: { backgroundColor: EV.bgCard, borderRadius: 20, padding: 24, marginBottom: 20, borderWidth: 1, borderColor: EV.border, overflow: 'hidden' },
+  balanceGlow: { position: 'absolute', top: -50, right: -50, width: 150, height: 150, borderRadius: 75, backgroundColor: EV.primary + '0C' },
+  balanceLabel: { fontSize: 11, color: EV.textMuted, fontWeight: '700', letterSpacing: 1.5, marginBottom: 8 },
+  balanceAmount: { fontSize: 40, fontWeight: '900', marginBottom: 20 },
+  balanceRow: { flexDirection: 'row', gap: 16 },
+  balanceItem: { flex: 1, alignItems: 'center', gap: 6 },
+  balanceItemLabel: { fontSize: 11, color: EV.textMuted, fontWeight: '600' },
+  balanceItemValue: { fontSize: 16, color: EV.text, fontWeight: '800' },
+  balanceDivider: { width: 1, backgroundColor: EV.border },
+  section: { marginBottom: 24 },
+  sectionHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 },
+  sectionTitle: { fontSize: 11, fontWeight: '700', color: EV.primary, letterSpacing: 1.5 },
+  transactionRow: { flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: EV.bgCard, borderRadius: 14, padding: 14, marginBottom: 8, borderWidth: 1, borderColor: EV.border },
+  transactionIcon: { width: 40, height: 40, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
+  transactionInfo: { flex: 1 },
+  transactionLabel: { fontSize: 14, fontWeight: '700', color: EV.text, marginBottom: 2 },
+  transactionDate: { fontSize: 11, color: EV.textDim },
+  transactionAmount: { fontSize: 15, fontWeight: '800' },
+  calendarHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, paddingHorizontal: 8 },
+  calendarNavBtn: { width: 40, height: 40, borderRadius: 12, backgroundColor: EV.bgCard, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: EV.border },
+  calendarTitleContainer: { alignItems: 'center' },
+  calendarTitle: { fontSize: 20, fontWeight: '800', color: EV.text },
+  calendarYear: { fontSize: 13, color: EV.textMuted, fontWeight: '600', marginTop: 2 },
+  calendarLegend: { flexDirection: 'row', justifyContent: 'center', gap: 20, marginBottom: 16, paddingVertical: 12, backgroundColor: EV.bgCard, borderRadius: 12, borderWidth: 1, borderColor: EV.border },
+  legendItem: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  legendDot: { width: 8, height: 8, borderRadius: 4 },
+  legendText: { fontSize: 12, color: EV.textMuted, fontWeight: '600' },
+  calendarGrid: { flexDirection: 'row', flexWrap: 'wrap', marginBottom: 20, backgroundColor: EV.bgCard, borderRadius: 16, padding: 8, borderWidth: 1, borderColor: EV.border },
+  calendarDayLabelContainer: { width: `${100/7}%`, paddingVertical: 8, alignItems: 'center' },
+  calendarDayLabel: { fontSize: 11, fontWeight: '700', color: EV.textMuted, textTransform: 'uppercase' },
+  calendarDayEmpty: { width: `${100/7}%`, aspectRatio: 1, padding: 2 },
+  calendarDayCell: { width: `${100/7}%`, aspectRatio: 1, padding: 2, alignItems: 'center', justifyContent: 'center' },
+  calendarDayCellInner: { width: '100%', height: '100%', alignItems: 'center', justifyContent: 'center', backgroundColor: EV.bgSurface, borderRadius: 10, borderWidth: 1, borderColor: EV.border },
+  calendarDayToday: { borderColor: EV.primary, borderWidth: 2 },
+  calendarDaySelected: { backgroundColor: EV.primary + '20', borderColor: EV.primary, borderWidth: 2 },
+  calendarDayActive: { backgroundColor: EV.bgElevated },
+  calendarDayText: { fontSize: 14, fontWeight: '700', color: EV.text, marginBottom: 2 },
+  calendarDayTextToday: { color: EV.primary },
+  calendarDayTextSelected: { color: EV.primary },
+  calendarDayAmount: { fontSize: 9, fontWeight: '700', color: EV.textDim, marginTop: 2 },
+  calendarDots: { flexDirection: 'row', gap: 3, marginTop: 2 },
+  calendarDot: { width: 5, height: 5, borderRadius: 2.5 },
+  dailyBreakdown: { backgroundColor: EV.bgCard, borderRadius: 20, padding: 20, borderWidth: 1, borderColor: EV.border, marginBottom: 16 },
+  dailyHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 20 },
+  dailyTitle: { fontSize: 18, fontWeight: '800', color: EV.text, marginBottom: 4 },
+  dailySubtitle: { fontSize: 13, color: EV.textMuted, fontWeight: '600' },
+  dailyCloseBtn: { width: 32, height: 32, borderRadius: 10, backgroundColor: EV.bgSurface, alignItems: 'center', justifyContent: 'center' },
+  dailyStats: { flexDirection: 'row', gap: 10, marginBottom: 16 },
+  dailyStatCard: { flex: 1, backgroundColor: EV.bgSurface, borderRadius: 14, padding: 12, alignItems: 'center', gap: 6, borderWidth: 1 },
+  dailyStatLabel: { fontSize: 10, color: EV.textMuted, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.5 },
+  dailyStatValue: { fontSize: 15, fontWeight: '900' },
+  emptyDaily: { alignItems: 'center', paddingVertical: 32, gap: 12 },
+  emptyDailyText: { fontSize: 14, color: EV.textDim, fontWeight: '600' },
+  summaryCard: { backgroundColor: EV.bgCard, borderRadius: 16, padding: 20, marginBottom: 16, borderWidth: 1, borderColor: EV.border },
+  summaryTitle: { fontSize: 11, fontWeight: '700', color: EV.primary, letterSpacing: 1.5, marginBottom: 4 },
+  summarySubtitle: { fontSize: 16, fontWeight: '800', color: EV.text, marginBottom: 16 },
+  summaryRow: { flexDirection: 'row', gap: 16 },
+  summaryItem: { flex: 1, alignItems: 'center' },
+  summaryLabel: { fontSize: 11, color: EV.textMuted, fontWeight: '600', marginBottom: 6 },
+  summaryValue: { fontSize: 20, fontWeight: '900', marginBottom: 4 },
+  summaryChange: { fontSize: 11, fontWeight: '700' },
+  trendRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 10 },
+  trendMonth: { width: 40, fontSize: 12, fontWeight: '700', color: EV.textMuted },
+  trendBars: { flex: 1, gap: 4 },
+  trendBar: { height: 6, borderRadius: 3 },
+  trendBalance: { width: 60, fontSize: 12, fontWeight: '700', textAlign: 'right' },
 });
