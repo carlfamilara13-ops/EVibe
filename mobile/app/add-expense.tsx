@@ -1,12 +1,20 @@
 import { useState } from 'react';
-import { View, Text, TextInput, TouchableOpacity, StyleSheet, ScrollView } from 'react-native';
+import {
+  View, Text, TextInput, TouchableOpacity, StyleSheet,
+  ScrollView, StatusBar, Alert, ActivityIndicator,
+} from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
+import { Ionicons } from '@expo/vector-icons';
+import { EV } from '@/constants/theme';
+import { addExpense } from '@/services/api';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const CATEGORIES = [
-  { label: '⚡ Charging', value: 'charging' },
-  { label: '🍔 Food', value: 'food' },
-  { label: '🏨 Accommodation', value: 'accommodation' },
-  { label: '📦 Other', value: 'other' },
+  { label: 'Charging', value: 'charging', icon: 'flash', color: EV.primary },
+  { label: 'Food', value: 'food', icon: 'restaurant', color: EV.warning },
+  { label: 'Stay', value: 'accommodation', icon: 'bed', color: EV.info },
+  { label: 'Other', value: 'other', icon: 'ellipsis-horizontal', color: EV.textMuted },
 ];
 
 export default function AddExpenseScreen() {
@@ -14,71 +22,146 @@ export default function AddExpenseScreen() {
   const [category, setCategory] = useState('charging');
   const [amount, setAmount] = useState('');
   const [description, setDescription] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [focusedField, setFocusedField] = useState<string | null>(null);
+
+  const selectedCat = CATEGORIES.find(c => c.value === category)!;
+
+  const handleSave = async () => {
+    if (!amount) return Alert.alert('Missing Amount', 'Please enter an amount');
+    setLoading(true);
+    try {
+      const tripId = await AsyncStorage.getItem('currentTripId');
+      await addExpense({ category, amount: parseFloat(amount), description, tripId });
+      router.back();
+    } catch (err) {
+      Alert.alert('Error', 'Failed to save expense');
+    } finally {
+      setLoading(false);
+    }
+  };
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.content}>
-      <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
-        <Text style={styles.backText}>← Back</Text>
-      </TouchableOpacity>
+    <SafeAreaView style={styles.safe}>
+      <StatusBar barStyle="light-content" backgroundColor={EV.bg} />
 
-      <Text style={styles.title}>Add Expense</Text>
-      <Text style={styles.subtitle}>Track your trip spending</Text>
-
-      <Text style={styles.label}>Category</Text>
-      <View style={styles.categoryGrid}>
-        {CATEGORIES.map((cat) => (
-          <TouchableOpacity
-            key={cat.value}
-            style={[styles.categoryBtn, category === cat.value && styles.categoryBtnActive]}
-            onPress={() => setCategory(cat.value)}
-          >
-            <Text style={[styles.categoryText, category === cat.value && styles.categoryTextActive]}>
-              {cat.label}
-            </Text>
-          </TouchableOpacity>
-        ))}
+      <View style={styles.header}>
+        <TouchableOpacity style={styles.backBtn} onPress={() => router.back()}>
+          <Ionicons name="arrow-back" size={20} color={EV.textMuted} />
+        </TouchableOpacity>
+        <Text style={styles.headerTitle}>Add Expense</Text>
       </View>
 
-      <Text style={styles.label}>Amount (RM)</Text>
-      <TextInput
-        style={styles.input}
-        placeholder="0.00"
-        placeholderTextColor="#64748b"
-        value={amount}
-        onChangeText={setAmount}
-        keyboardType="numeric"
-      />
+      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scroll}>
 
-      <Text style={styles.label}>Description</Text>
-      <TextInput
-        style={styles.input}
-        placeholder="e.g. Shell Recharge Station"
-        placeholderTextColor="#64748b"
-        value={description}
-        onChangeText={setDescription}
-      />
+        {/* Amount hero */}
+        <View style={styles.amountCard}>
+          <View style={[styles.amountIcon, { backgroundColor: selectedCat.color + '20' }]}>
+            <Ionicons name={selectedCat.icon as any} size={28} color={selectedCat.color} />
+          </View>
+          <Text style={styles.amountLabel}>AMOUNT</Text>
+          <View style={styles.amountRow}>
+            <Text style={styles.amountCurrency}>₱</Text>
+            <TextInput
+              style={styles.amountInput}
+              placeholder="0.00"
+              placeholderTextColor={EV.textDim}
+              value={amount}
+              onChangeText={setAmount}
+              keyboardType="numeric"
+              autoFocus
+            />
+          </View>
+        </View>
 
-      <TouchableOpacity style={styles.button} onPress={() => router.back()}>
-        <Text style={styles.buttonText}>Save Expense</Text>
-      </TouchableOpacity>
-    </ScrollView>
+        {/* Category */}
+        <Text style={styles.sectionLabel}>CATEGORY</Text>
+        <View style={styles.catGrid}>
+          {CATEGORIES.map(cat => (
+            <TouchableOpacity
+              key={cat.value}
+              style={[styles.catBtn, category === cat.value && { backgroundColor: cat.color, borderColor: cat.color }]}
+              onPress={() => setCategory(cat.value)}
+              activeOpacity={0.8}>
+              <Ionicons name={cat.icon as any} size={18} color={category === cat.value ? EV.bg : cat.color} />
+              <Text style={[styles.catLabel, category === cat.value && { color: EV.bg }]}>{cat.label}</Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+
+        {/* Description */}
+        <Text style={styles.sectionLabel}>DESCRIPTION</Text>
+        <View style={[styles.inputWrap, focusedField === 'desc' && styles.inputWrapFocused]}>
+          <Ionicons name="create-outline" size={18} color={focusedField === 'desc' ? EV.primary : EV.textDim} />
+          <TextInput
+            style={styles.input}
+            placeholder="e.g. GreenCharge Hub"
+            placeholderTextColor={EV.textDim}
+            value={description}
+            onChangeText={setDescription}
+            onFocus={() => setFocusedField('desc')}
+            onBlur={() => setFocusedField(null)}
+          />
+        </View>
+
+        <TouchableOpacity style={styles.saveBtn} onPress={handleSave} disabled={loading} activeOpacity={0.85}>
+          {loading
+            ? <ActivityIndicator color={EV.bg} />
+            : <>
+                <Ionicons name="checkmark-circle" size={20} color={EV.bg} />
+                <Text style={styles.saveBtnText}>Save Expense</Text>
+              </>}
+        </TouchableOpacity>
+
+        <View style={{ height: 24 }} />
+      </ScrollView>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#0f172a' },
-  content: { padding: 24, paddingTop: 60 },
-  backBtn: { marginBottom: 20 },
-  backText: { color: '#22c55e', fontSize: 16 },
-  title: { fontSize: 26, fontWeight: 'bold', color: '#fff', marginBottom: 4 },
-  subtitle: { fontSize: 14, color: '#94a3b8', marginBottom: 28 },
-  label: { color: '#94a3b8', fontSize: 13, marginBottom: 10, marginTop: 4 },
-  categoryGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginBottom: 20 },
-  categoryBtn: { backgroundColor: '#1e293b', borderRadius: 12, paddingVertical: 12, paddingHorizontal: 16, borderWidth: 1, borderColor: '#1e293b' },
-  categoryBtnActive: { borderColor: '#22c55e', backgroundColor: '#14532d' },
-  categoryText: { color: '#94a3b8', fontWeight: '600' },
-  categoryTextActive: { color: '#22c55e' },
-  input: { backgroundColor: '#1e293b', color: '#fff', borderRadius: 12, padding: 16, marginBottom: 16, fontSize: 15 },
-  button: { backgroundColor: '#22c55e', borderRadius: 14, padding: 18, alignItems: 'center', marginTop: 8 },
-  buttonText: { color: '#fff', fontWeight: 'bold', fontSize: 16 },
+  safe: { flex: 1, backgroundColor: EV.bg },
+  header: {
+    flexDirection: 'row', alignItems: 'center', gap: 14,
+    paddingHorizontal: 16, paddingVertical: 14,
+    borderBottomWidth: 1, borderBottomColor: EV.border,
+  },
+  backBtn: {
+    width: 38, height: 38, borderRadius: 11,
+    backgroundColor: EV.bgCard, alignItems: 'center', justifyContent: 'center',
+    borderWidth: 1, borderColor: EV.border,
+  },
+  headerTitle: { fontSize: 18, fontWeight: '800', color: EV.text },
+  scroll: { padding: 16 },
+  amountCard: {
+    backgroundColor: EV.bgCard, borderRadius: 20, padding: 24,
+    alignItems: 'center', gap: 8, marginBottom: 24,
+    borderWidth: 1, borderColor: EV.border,
+  },
+  amountIcon: { width: 60, height: 60, borderRadius: 18, alignItems: 'center', justifyContent: 'center', marginBottom: 4 },
+  amountLabel: { fontSize: 10, color: EV.textMuted, fontWeight: '700', letterSpacing: 1.5 },
+  amountRow: { flexDirection: 'row', alignItems: 'center' },
+  amountCurrency: { fontSize: 32, color: EV.textMuted, fontWeight: '700', marginRight: 4 },
+  amountInput: { fontSize: 48, fontWeight: '900', color: EV.text, minWidth: 120, textAlign: 'center' },
+  sectionLabel: { fontSize: 10, fontWeight: '700', color: EV.primary, letterSpacing: 1.5, marginBottom: 12 },
+  catGrid: { flexDirection: 'row', gap: 10, marginBottom: 24 },
+  catBtn: {
+    flex: 1, flexDirection: 'column', alignItems: 'center', gap: 6,
+    paddingVertical: 14, borderRadius: 14,
+    backgroundColor: EV.bgCard, borderWidth: 1, borderColor: EV.border,
+  },
+  catLabel: { fontSize: 11, fontWeight: '700', color: EV.textMuted },
+  inputWrap: {
+    flexDirection: 'row', alignItems: 'center', gap: 12,
+    backgroundColor: EV.bgSurface, borderRadius: 14,
+    paddingHorizontal: 16, paddingVertical: 14,
+    borderWidth: 1, borderColor: EV.border, marginBottom: 24,
+  },
+  inputWrapFocused: { borderColor: EV.primary },
+  input: { flex: 1, color: EV.text, fontSize: 15 },
+  saveBtn: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
+    backgroundColor: EV.primary, borderRadius: 14, paddingVertical: 16,
+  },
+  saveBtnText: { color: EV.bg, fontWeight: '800', fontSize: 16 },
 });

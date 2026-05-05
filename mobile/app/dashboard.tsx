@@ -1,121 +1,220 @@
-import { View, Text, TouchableOpacity, StyleSheet, ScrollView } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet, ScrollView, StatusBar } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
+import { Ionicons } from '@expo/vector-icons';
+import { EV } from '@/constants/theme';
+
+const TRIP = { origin: 'Manila', destination: 'Quezon City', distance: '15 km', budget: 500, spent: 280 };
+const EXPENSES = [
+  { category: 'Charging', icon: 'flash', amount: 120, desc: 'GreenCharge Hub', color: EV.primary },
+  { category: 'Food', icon: 'restaurant', amount: 95, desc: 'Lunch stop', color: EV.warning },
+  { category: 'Stay', icon: 'bed', amount: 65, desc: 'Hotel near destination', color: EV.info },
+];
+const progress = TRIP.spent / TRIP.budget;
+const progressColor = progress > 0.85 ? EV.danger : progress > 0.6 ? EV.warning : EV.primary;
 
 export default function DashboardScreen() {
   const router = useRouter();
-  const budget = 200;
-  const spent = 120;
-  const progress = spent / budget;
-
-  const expenses = [
-    { category: '⚡ Charging', amount: 45, desc: 'Shell Recharge Penang' },
-    { category: '🍔 Food', amount: 35, desc: 'Lunch at R&R' },
-    { category: '🏨 Stay', amount: 40, desc: 'Hotel near destination' },
-  ];
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.content}>
-      <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
-        <Text style={styles.backText}>← Back</Text>
-      </TouchableOpacity>
+    <SafeAreaView style={styles.safe}>
+      <StatusBar barStyle="light-content" backgroundColor={EV.bg} />
 
-      <Text style={styles.title}>KL → Penang</Text>
-      <Text style={styles.subtitle}>370 km • Active Trip</Text>
-
-      {/* Budget Card */}
-      <View style={styles.card}>
-        <Text style={styles.cardTitle}>💰 Budget Tracker</Text>
-        <View style={styles.budgetRow}>
-          <Text style={styles.budgetSpent}>RM {spent}</Text>
-          <Text style={styles.budgetTotal}>/ RM {budget}</Text>
-        </View>
-        <View style={styles.progressBg}>
-          <View style={[styles.progressFill, { width: `${progress * 100}%` as any }]} />
-        </View>
-        <Text style={styles.budgetRemaining}>RM {budget - spent} remaining</Text>
-      </View>
-
-      {/* Eco Score */}
-      <View style={styles.card}>
-        <Text style={styles.cardTitle}>🌿 Eco Score</Text>
-        <View style={styles.scoreRow}>
-          <Text style={styles.scoreValue}>87</Text>
-          <View>
-            <Text style={styles.stars}>⭐⭐⭐⭐☆</Text>
-            <Text style={styles.scoreMsg}>Great eco-friendly trip!</Text>
-          </View>
-        </View>
-        <View style={styles.carbonRow}>
-          <View style={styles.carbonStat}>
-            <Text style={styles.carbonValue}>12.4 kg</Text>
-            <Text style={styles.carbonLabel}>CO₂ Saved</Text>
-          </View>
-          <View style={styles.carbonStat}>
-            <Text style={styles.carbonValue}>0.8</Text>
-            <Text style={styles.carbonLabel}>Trees Saved</Text>
-          </View>
-          <View style={styles.carbonStat}>
-            <Text style={styles.carbonValue}>2.1 kg</Text>
-            <Text style={styles.carbonLabel}>CO₂ Emitted</Text>
-          </View>
-        </View>
-      </View>
-
-      {/* Expenses */}
-      <View style={styles.expenseHeader}>
-        <Text style={styles.sectionTitle}>Expenses</Text>
-        <TouchableOpacity onPress={() => router.push('/add-expense')}>
-          <Text style={styles.addBtn}>+ Add</Text>
+      <View style={styles.header}>
+        <TouchableOpacity style={styles.backBtn} onPress={() => router.back()}>
+          <Ionicons name="arrow-back" size={20} color={EV.textMuted} />
         </TouchableOpacity>
+        <View>
+          <Text style={styles.headerTitle}>{TRIP.origin} → {TRIP.destination}</Text>
+          <Text style={styles.headerSub}>{TRIP.distance} · Active Trip</Text>
+        </View>
+        <View style={styles.activePill}>
+          <View style={styles.activeDot} />
+          <Text style={styles.activeText}>Live</Text>
+        </View>
       </View>
 
-      {expenses.map((e, i) => (
-        <View key={i} style={styles.expenseCard}>
-          <View>
-            <Text style={styles.expenseCategory}>{e.category}</Text>
-            <Text style={styles.expenseDesc}>{e.desc}</Text>
-          </View>
-          <Text style={styles.expenseAmount}>RM {e.amount}</Text>
-        </View>
-      ))}
+      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scroll}>
 
-      <TouchableOpacity style={styles.tipsBtn} onPress={() => router.push('/tips')}>
-        <Text style={styles.tipsBtnText}>🌱 View Eco Tips</Text>
-      </TouchableOpacity>
-    </ScrollView>
+        {/* Budget card */}
+        <View style={styles.card}>
+          <View style={styles.cardHeader}>
+            <View style={[styles.cardIconWrap, { backgroundColor: EV.primary + '20' }]}>
+              <Ionicons name="wallet" size={18} color={EV.primary} />
+            </View>
+            <Text style={styles.cardTitle}>Budget Tracker</Text>
+          </View>
+          <View style={styles.budgetRow}>
+            <View>
+              <Text style={styles.budgetLabel}>SPENT</Text>
+              <Text style={[styles.budgetSpent, { color: progressColor }]}>₱{TRIP.spent}</Text>
+            </View>
+            <View style={styles.budgetRight}>
+              <Text style={styles.budgetLabel}>REMAINING</Text>
+              <Text style={styles.budgetRemain}>₱{TRIP.budget - TRIP.spent}</Text>
+            </View>
+            <View style={styles.budgetRight}>
+              <Text style={styles.budgetLabel}>BUDGET</Text>
+              <Text style={styles.budgetTotal}>₱{TRIP.budget}</Text>
+            </View>
+          </View>
+          <View style={styles.progressBg}>
+            <View style={[styles.progressFill, { width: `${progress * 100}%` as any, backgroundColor: progressColor }]} />
+          </View>
+          <Text style={styles.progressPct}>{Math.round(progress * 100)}% used</Text>
+        </View>
+
+        {/* Eco score card */}
+        <View style={styles.card}>
+          <View style={styles.cardHeader}>
+            <View style={[styles.cardIconWrap, { backgroundColor: EV.neon + '20' }]}>
+              <Ionicons name="leaf" size={18} color={EV.neon} />
+            </View>
+            <Text style={styles.cardTitle}>Eco Score</Text>
+          </View>
+          <View style={styles.ecoRow}>
+            <View style={styles.scoreRing}>
+              <Text style={styles.scoreNum}>87</Text>
+              <Text style={styles.scoreMax}>/100</Text>
+            </View>
+            <View style={styles.ecoRight}>
+              <View style={styles.starsRow}>
+                {[1,2,3,4,5].map(i => (
+                  <Ionicons key={i} name={i <= 4 ? 'star' : 'star-outline'} size={16} color={i <= 4 ? EV.warning : EV.textDim} />
+                ))}
+              </View>
+              <Text style={styles.ecoMsg}>Great eco-friendly trip! 🌿</Text>
+              <View style={styles.carbonStats}>
+                <View style={styles.carbonStat}>
+                  <Text style={styles.carbonVal}>12.4 kg</Text>
+                  <Text style={styles.carbonLbl}>CO₂ Saved</Text>
+                </View>
+                <View style={styles.carbonStat}>
+                  <Text style={styles.carbonVal}>0.8</Text>
+                  <Text style={styles.carbonLbl}>Trees</Text>
+                </View>
+                <View style={styles.carbonStat}>
+                  <Text style={styles.carbonVal}>2.1 kg</Text>
+                  <Text style={styles.carbonLbl}>Emitted</Text>
+                </View>
+              </View>
+            </View>
+          </View>
+        </View>
+
+        {/* Expenses */}
+        <View style={styles.expenseHeader}>
+          <Text style={styles.sectionTitle}>EXPENSES</Text>
+          <TouchableOpacity style={styles.addExpBtn} onPress={() => router.push('/add-expense')}>
+            <Ionicons name="add" size={16} color={EV.bg} />
+            <Text style={styles.addExpText}>Add</Text>
+          </TouchableOpacity>
+        </View>
+
+        {EXPENSES.map((e, i) => (
+          <View key={i} style={styles.expenseCard}>
+            <View style={[styles.expIcon, { backgroundColor: e.color + '20' }]}>
+              <Ionicons name={e.icon as any} size={18} color={e.color} />
+            </View>
+            <View style={styles.expInfo}>
+              <Text style={styles.expCategory}>{e.category}</Text>
+              <Text style={styles.expDesc}>{e.desc}</Text>
+            </View>
+            <Text style={[styles.expAmount, { color: e.color }]}>₱{e.amount}</Text>
+          </View>
+        ))}
+
+        {/* Eco tips button */}
+        <TouchableOpacity style={styles.tipsBtn} onPress={() => router.push('/tips')}>
+          <Ionicons name="bulb-outline" size={18} color={EV.primary} />
+          <Text style={styles.tipsBtnText}>View Eco Tips</Text>
+          <Ionicons name="chevron-forward" size={16} color={EV.primary} />
+        </TouchableOpacity>
+
+        <View style={{ height: 24 }} />
+      </ScrollView>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#0f172a' },
-  content: { padding: 24, paddingTop: 60 },
-  backBtn: { marginBottom: 20 },
-  backText: { color: '#22c55e', fontSize: 16 },
-  title: { fontSize: 26, fontWeight: 'bold', color: '#fff', marginBottom: 4 },
-  subtitle: { fontSize: 14, color: '#94a3b8', marginBottom: 24 },
-  card: { backgroundColor: '#1e293b', borderRadius: 16, padding: 20, marginBottom: 16 },
-  cardTitle: { fontSize: 15, fontWeight: 'bold', color: '#22c55e', marginBottom: 14 },
-  budgetRow: { flexDirection: 'row', alignItems: 'baseline', marginBottom: 12 },
-  budgetSpent: { fontSize: 32, fontWeight: 'bold', color: '#fff' },
-  budgetTotal: { fontSize: 16, color: '#94a3b8', marginLeft: 6 },
-  progressBg: { backgroundColor: '#0f172a', borderRadius: 8, height: 10, marginBottom: 8 },
-  progressFill: { backgroundColor: '#22c55e', borderRadius: 8, height: 10 },
-  budgetRemaining: { color: '#94a3b8', fontSize: 13 },
-  scoreRow: { flexDirection: 'row', alignItems: 'center', gap: 20, marginBottom: 16 },
-  scoreValue: { fontSize: 52, fontWeight: 'bold', color: '#22c55e' },
-  stars: { fontSize: 18, marginBottom: 4 },
-  scoreMsg: { color: '#94a3b8', fontSize: 13 },
-  carbonRow: { flexDirection: 'row', justifyContent: 'space-between' },
-  carbonStat: { alignItems: 'center' },
-  carbonValue: { color: '#fff', fontWeight: 'bold', fontSize: 15 },
-  carbonLabel: { color: '#94a3b8', fontSize: 11, marginTop: 2 },
-  expenseHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, marginTop: 8 },
-  sectionTitle: { fontSize: 18, fontWeight: 'bold', color: '#fff' },
-  addBtn: { color: '#22c55e', fontWeight: 'bold', fontSize: 15 },
-  expenseCard: { backgroundColor: '#1e293b', borderRadius: 14, padding: 16, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 },
-  expenseCategory: { color: '#fff', fontWeight: '600', fontSize: 14 },
-  expenseDesc: { color: '#94a3b8', fontSize: 12, marginTop: 2 },
-  expenseAmount: { color: '#22c55e', fontWeight: 'bold', fontSize: 16 },
-  tipsBtn: { backgroundColor: '#1e293b', borderRadius: 14, padding: 16, alignItems: 'center', marginTop: 8, marginBottom: 32, borderWidth: 1, borderColor: '#22c55e' },
-  tipsBtnText: { color: '#22c55e', fontWeight: 'bold', fontSize: 15 },
+  safe: { flex: 1, backgroundColor: EV.bg },
+  header: {
+    flexDirection: 'row', alignItems: 'center', gap: 12,
+    paddingHorizontal: 16, paddingVertical: 14,
+    borderBottomWidth: 1, borderBottomColor: EV.border,
+  },
+  backBtn: {
+    width: 38, height: 38, borderRadius: 11,
+    backgroundColor: EV.bgCard, alignItems: 'center', justifyContent: 'center',
+    borderWidth: 1, borderColor: EV.border,
+  },
+  headerTitle: { fontSize: 16, fontWeight: '800', color: EV.text },
+  headerSub: { fontSize: 12, color: EV.textMuted, marginTop: 2 },
+  activePill: {
+    flexDirection: 'row', alignItems: 'center', gap: 5,
+    backgroundColor: EV.primary + '20', borderRadius: 20,
+    paddingHorizontal: 10, paddingVertical: 5,
+    borderWidth: 1, borderColor: EV.primaryDark, marginLeft: 'auto' as any,
+  },
+  activeDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: EV.primary },
+  activeText: { fontSize: 11, color: EV.primary, fontWeight: '700' },
+  scroll: { padding: 16 },
+  card: {
+    backgroundColor: EV.bgCard, borderRadius: 20, padding: 18,
+    borderWidth: 1, borderColor: EV.border, marginBottom: 14,
+  },
+  cardHeader: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 16 },
+  cardIconWrap: { width: 36, height: 36, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
+  cardTitle: { fontSize: 15, fontWeight: '700', color: EV.text },
+  budgetRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 14 },
+  budgetLabel: { fontSize: 9, color: EV.textDim, fontWeight: '700', letterSpacing: 1, marginBottom: 4 },
+  budgetSpent: { fontSize: 28, fontWeight: '900' },
+  budgetRight: {},
+  budgetRemain: { fontSize: 18, fontWeight: '800', color: EV.primary },
+  budgetTotal: { fontSize: 18, fontWeight: '800', color: EV.textMuted },
+  progressBg: { height: 8, backgroundColor: EV.bgSurface, borderRadius: 4, overflow: 'hidden', marginBottom: 6 },
+  progressFill: { height: '100%', borderRadius: 4 },
+  progressPct: { fontSize: 11, color: EV.textMuted },
+  ecoRow: { flexDirection: 'row', alignItems: 'center', gap: 20 },
+  scoreRing: {
+    width: 80, height: 80, borderRadius: 40,
+    borderWidth: 4, borderColor: EV.primary,
+    alignItems: 'center', justifyContent: 'center',
+    backgroundColor: EV.bgSurface,
+  },
+  scoreNum: { fontSize: 26, fontWeight: '900', color: EV.primary },
+  scoreMax: { fontSize: 10, color: EV.textMuted },
+  ecoRight: { flex: 1, gap: 8 },
+  starsRow: { flexDirection: 'row', gap: 3 },
+  ecoMsg: { fontSize: 13, color: EV.textMuted },
+  carbonStats: { flexDirection: 'row', gap: 16 },
+  carbonStat: {},
+  carbonVal: { fontSize: 13, fontWeight: '700', color: EV.text },
+  carbonLbl: { fontSize: 10, color: EV.textMuted },
+  expenseHeader: {
+    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12,
+  },
+  sectionTitle: { fontSize: 11, fontWeight: '700', color: EV.primary, letterSpacing: 1.5 },
+  addExpBtn: {
+    flexDirection: 'row', alignItems: 'center', gap: 4,
+    backgroundColor: EV.primary, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 6,
+  },
+  addExpText: { fontSize: 13, fontWeight: '700', color: EV.bg },
+  expenseCard: {
+    flexDirection: 'row', alignItems: 'center', gap: 12,
+    backgroundColor: EV.bgCard, borderRadius: 14, padding: 14,
+    borderWidth: 1, borderColor: EV.border, marginBottom: 10,
+  },
+  expIcon: { width: 40, height: 40, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
+  expInfo: { flex: 1 },
+  expCategory: { fontSize: 14, fontWeight: '700', color: EV.text },
+  expDesc: { fontSize: 12, color: EV.textMuted, marginTop: 2 },
+  expAmount: { fontSize: 16, fontWeight: '800' },
+  tipsBtn: {
+    flexDirection: 'row', alignItems: 'center', gap: 10,
+    backgroundColor: EV.bgCard, borderRadius: 14, padding: 16,
+    borderWidth: 1, borderColor: EV.primaryDark, marginTop: 4,
+  },
+  tipsBtnText: { flex: 1, fontSize: 15, fontWeight: '700', color: EV.primary },
 });
