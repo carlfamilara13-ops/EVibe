@@ -27,7 +27,7 @@ export default function SignUpScreen() {
       const res = await register(name, email, password);
       await AsyncStorage.setItem('token', res.data.token);
       await AsyncStorage.setItem('user', JSON.stringify(res.data.user));
-      router.replace('/(tabs)');
+      router.replace('/trip-intro');
     } catch (err: any) {
       Alert.alert('Registration Failed', err.response?.data?.error || 'Something went wrong');
     } finally {

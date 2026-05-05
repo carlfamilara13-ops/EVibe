@@ -25,7 +25,7 @@ export default function LoginScreen() {
       const res = await login(email, password);
       await AsyncStorage.setItem('token', res.data.token);
       await AsyncStorage.setItem('user', JSON.stringify(res.data.user));
-      router.replace('/(tabs)');
+      router.replace('/trip-intro');
     } catch (err: any) {
       Alert.alert('Login Failed', err.response?.data?.error || 'Invalid email or password');
     } finally {
