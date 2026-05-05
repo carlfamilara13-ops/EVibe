@@ -1,31 +1,31 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import {
   View, Text, StyleSheet, TextInput, TouchableOpacity,
-  ScrollView, StatusBar, Dimensions, Animated, PanResponder,
+  ScrollView, StatusBar, Dimensions, Animated, PanResponder, ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import MapView, { Marker, Polyline, PROVIDER_DEFAULT } from 'react-native-maps';
+import MapView, { Marker, Polyline } from 'react-native-maps';
 import * as Location from 'expo-location';
 import { Ionicons } from '@expo/vector-icons';
 import { EV } from '@/constants/theme';
+import { fetchStations } from '@/services/ocm';
+import { getRoute, geocode } from '@/services/ors';
 
 const { height } = Dimensions.get('window');
 const PEEK = 72;
 const FULL = 304;
 
-const STATIONS = [
-  { id: '1', name: 'GreenCharge Hub', type: 'DC Fast', power: '150 kW', cost: '$4.20', time: '18 min', available: 3, total: 4, coordinate: { latitude: 14.5995, longitude: 120.9842 } },
-  { id: '2', name: 'EcoVolt Station', type: 'AC Level 2', power: '22 kW', cost: '$2.80', time: '45 min', available: 2, total: 6, coordinate: { latitude: 14.6050, longitude: 120.9780 } },
-  { id: '3', name: 'NexCharge Point', type: 'DC Fast', power: '100 kW', cost: '$5.50', time: '25 min', available: 1, total: 2, coordinate: { latitude: 14.5930, longitude: 120.9900 } },
-  { id: '4', name: 'SolarStop', type: 'AC Level 2', power: '11 kW', cost: '$1.90', time: '90 min', available: 4, total: 4, coordinate: { latitude: 14.6100, longitude: 120.9950 } },
-];
-
 export default function MapScreen() {
   const [destination, setDestination] = useState('');
   const [selectedStation, setSelectedStation] = useState<string | null>(null);
   const [routeActive, setRouteActive] = useState(false);
+  const [routeCoords, setRouteCoords] = useState<{ latitude: number; longitude: number }[]>([]);
+  const [routeInfo, setRouteInfo] = useState<{ distanceKm: string; durationMin: number } | null>(null);
   const [userLocation, setUserLocation] = useState<{ latitude: number; longitude: number } | null>(null);
   const [searchFocused, setSearchFocused] = useState(false);
+  const [STATIONS, setSTATIONS] = useState<any[]>([]);
+  const [routeLoading, setRouteLoading] = useState(false);
+  const [searchLoading, setSearchLoading] = useState(false);
 
   const mapRef = useRef<MapView>(null);
   const sheetAnim = useRef(new Animated.Value(PEEK)).current;
@@ -37,7 +37,10 @@ export default function MapScreen() {
       const { status } = await Location.requestForegroundPermissionsAsync();
       if (status === 'granted') {
         const loc = await Location.getCurrentPositionAsync({});
-        setUserLocation({ latitude: loc.coords.latitude, longitude: loc.coords.longitude });
+        const coords = { latitude: loc.coords.latitude, longitude: loc.coords.longitude };
+        setUserLocation(coords);
+        const data = await fetchStations(coords.latitude, coords.longitude);
+        setSTATIONS(data);
       }
     })();
   }, []);
@@ -102,8 +105,6 @@ export default function MapScreen() {
   }), []);
 
   const selectedS = STATIONS.find(s => s.id === selectedStation);
-  const routeCoords = routeActive && userLocation && selectedS
-    ? [userLocation, selectedS.coordinate] : [];
 
   const handleStationPress = (id: string) => {
     setSelectedStation(id);
@@ -116,20 +117,59 @@ export default function MapScreen() {
     }, 600);
   };
 
-  const handleNavigate = () => {
-    if (!selectedS) return;
-    setRouteActive(true);
-    if (userLocation) {
-      mapRef.current?.fitToCoordinates([userLocation, selectedS.coordinate], {
+  const handleNavigate = async () => {
+    if (!selectedS || !userLocation) return;
+    setRouteLoading(true);
+    try {
+      const result = await getRoute(userLocation, selectedS.coordinate);
+      setRouteCoords(result.coordinates);
+      setRouteInfo({ distanceKm: result.distanceKm, durationMin: result.durationMin });
+      setRouteActive(true);
+      mapRef.current?.fitToCoordinates(result.coordinates, {
         edgePadding: { top: 120, right: 40, bottom: FULL + 20, left: 40 },
         animated: true,
       });
+    } catch (err) {
+      console.log('Route error', err);
+    } finally {
+      setRouteLoading(false);
     }
   };
 
   const locateMe = async () => {
     if (userLocation) {
       mapRef.current?.animateToRegion({ ...userLocation, latitudeDelta: 0.01, longitudeDelta: 0.01 }, 600);
+    }
+  };
+
+  const handleSearch = async () => {
+    if (!destination.trim()) return;
+    setSearchLoading(true);
+    try {
+      const result = await geocode(destination);
+      mapRef.current?.animateToRegion({
+        latitude: result.latitude,
+        longitude: result.longitude,
+        latitudeDelta: 0.05,
+        longitudeDelta: 0.05,
+      }, 800);
+      const data = await fetchStations(result.latitude, result.longitude);
+      setSTATIONS(data);
+
+      if (userLocation) {
+        const route = await getRoute(userLocation, { latitude: result.latitude, longitude: result.longitude });
+        setRouteCoords(route.coordinates);
+        setRouteInfo({ distanceKm: route.distanceKm, durationMin: route.durationMin });
+        setRouteActive(true);
+        mapRef.current?.fitToCoordinates(route.coordinates, {
+          edgePadding: { top: 120, right: 40, bottom: FULL + 20, left: 40 },
+          animated: true,
+        });
+      }
+    } catch (err) {
+      console.log('Search failed:', err);
+    } finally {
+      setSearchLoading(false);
     }
   };
 
@@ -140,7 +180,7 @@ export default function MapScreen() {
       <MapView
         ref={mapRef}
         style={StyleSheet.absoluteFillObject}
-        provider={PROVIDER_DEFAULT}
+        provider={undefined}
         initialRegion={{
           latitude: userLocation?.latitude ?? 14.5995,
           longitude: userLocation?.longitude ?? 120.9842,
@@ -151,14 +191,14 @@ export default function MapScreen() {
         showsUserLocation
         showsMyLocationButton={false}
         showsCompass={false}>
-        {STATIONS.map(s => (
-          <Marker key={s.id} coordinate={s.coordinate} onPress={() => handleStationPress(s.id)}>
+        {STATIONS.map((s, index) => (
+          <Marker key={`${s.id}-${index}`} coordinate={s.coordinate} onPress={() => handleStationPress(s.id)}>
             <View style={[styles.markerWrap, s.type === 'DC Fast' && styles.markerFast, selectedStation === s.id && styles.markerSelected]}>
               <Ionicons name="flash" size={14} color={EV.bg} />
             </View>
           </Marker>
         ))}
-        {routeCoords.length === 2 && (
+        {routeCoords.length > 1 && (
           <Polyline coordinates={routeCoords} strokeColor={EV.primary} strokeWidth={4} />
         )}
       </MapView>
@@ -176,23 +216,27 @@ export default function MapScreen() {
               onChangeText={setDestination}
               onFocus={() => setSearchFocused(true)}
               onBlur={() => setSearchFocused(false)}
+              onSubmitEditing={handleSearch}
+              returnKeyType="search"
             />
-            {destination
-              ? <TouchableOpacity onPress={() => { setDestination(''); setRouteActive(false); setSelectedStation(null); }}>
+            {searchLoading
+              ? <ActivityIndicator size="small" color={EV.primary} />
+              : destination
+              ? <TouchableOpacity onPress={() => { setDestination(''); setRouteActive(false); setSelectedStation(null); setRouteCoords([]); setRouteInfo(null); }}>
                   <Ionicons name="close-circle" size={16} color={EV.textDim} />
                 </TouchableOpacity>
-              : <TouchableOpacity><Ionicons name="mic" size={16} color={EV.primary} /></TouchableOpacity>}
+              : <TouchableOpacity onPress={handleSearch}><Ionicons name="search" size={16} color={EV.primary} /></TouchableOpacity>}
           </View>
         </View>
 
-        {routeActive && selectedS && (
+        {routeActive && routeInfo && (
           <View style={styles.routeBar}>
-            <View style={styles.routeItem}><Ionicons name="navigate" size={13} color={EV.primary} /><Text style={styles.routeVal}>3.2 km</Text></View>
+            <View style={styles.routeItem}><Ionicons name="navigate" size={13} color={EV.primary} /><Text style={styles.routeVal}>{routeInfo.distanceKm} km</Text></View>
             <View style={styles.routeDivider} />
-            <View style={styles.routeItem}><Ionicons name="time-outline" size={13} color={EV.accent} /><Text style={styles.routeVal}>8 min</Text></View>
-            <View style={styles.routeDivider} />
-            <View style={styles.routeItem}><Ionicons name="flash-outline" size={13} color={EV.neon} /><Text style={styles.routeVal}>{selectedS.cost}</Text></View>
-            <TouchableOpacity style={{ marginLeft: 'auto' as any }} onPress={() => { setRouteActive(false); setSelectedStation(null); }}>
+            <View style={styles.routeItem}><Ionicons name="time-outline" size={13} color={EV.accent} /><Text style={styles.routeVal}>{routeInfo.durationMin} min</Text></View>
+            {selectedS && (<><View style={styles.routeDivider} />
+            <View style={styles.routeItem}><Ionicons name="flash-outline" size={13} color={EV.neon} /><Text style={styles.routeVal}>{selectedS.cost}</Text></View></>)}
+            <TouchableOpacity style={{ marginLeft: 'auto' as any }} onPress={() => { setRouteActive(false); setSelectedStation(null); setRouteCoords([]); setRouteInfo(null); }}>
               <Ionicons name="close" size={14} color={EV.textMuted} />
             </TouchableOpacity>
           </View>
@@ -261,9 +305,11 @@ export default function MapScreen() {
                 </View>
               ))}
             </View>
-            <TouchableOpacity style={styles.navigateBtn} onPress={handleNavigate}>
-              <Ionicons name="navigate" size={17} color={EV.bg} />
-              <Text style={styles.navigateBtnText}>Navigate to Station</Text>
+            <TouchableOpacity style={styles.navigateBtn} onPress={handleNavigate} disabled={routeLoading}>
+              {routeLoading
+                ? <ActivityIndicator color={EV.bg} />
+                : <><Ionicons name="navigate" size={17} color={EV.bg} /><Text style={styles.navigateBtnText}>Navigate to Station</Text></>
+              }
             </TouchableOpacity>
           </View>
 
@@ -275,8 +321,8 @@ export default function MapScreen() {
               if (total > PEEK) startY.current = startY.current; // keep ref
             }}>
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.stationList}>
-              {STATIONS.map(s => (
-                <TouchableOpacity key={s.id} style={styles.stationCard} onPress={() => handleStationPress(s.id)} activeOpacity={0.85}>
+              {STATIONS.map((s, index) => (
+                <TouchableOpacity key={`sheet-${s.id}-${index}`} style={styles.stationCard} onPress={() => handleStationPress(s.id)} activeOpacity={0.85}>
                   <View style={styles.stationCardTop}>
                     <View style={[styles.stationCardIcon, s.type === 'DC Fast' && styles.stationCardIconFast]}>
                       <Ionicons name="flash" size={16} color={EV.bg} />

@@ -1,18 +1,13 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View, Text, StyleSheet, TouchableOpacity,
-  ScrollView, StatusBar,
+  ScrollView, StatusBar, ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { EV } from '@/constants/theme';
-
-const STATIONS = [
-  { id: '1', name: 'GreenCharge Hub', address: '123 Main St, Downtown', distance: '12 km', type: 'DC Fast', power: '150 kW', cost: '$4.20', time: '18 min', connectors: ['CCS', 'CHAdeMO'], available: 3, total: 4 },
-  { id: '2', name: 'EcoVolt Station', address: '456 Park Ave, Midtown', distance: '28 km', type: 'AC Level 2', power: '22 kW', cost: '$2.80', time: '45 min', connectors: ['Type 2'], available: 2, total: 6 },
-  { id: '3', name: 'NexCharge Point', address: '789 Oak Rd, Uptown', distance: '47 km', type: 'DC Fast', power: '100 kW', cost: '$5.50', time: '25 min', connectors: ['CCS'], available: 1, total: 2 },
-  { id: '4', name: 'SolarStop', address: '321 Green Blvd', distance: '63 km', type: 'AC Level 2', power: '11 kW', cost: '$1.90', time: '90 min', connectors: ['Type 2', 'Type 1'], available: 4, total: 4 },
-];
+import * as Location from 'expo-location';
+import { fetchStations } from '@/services/ocm';
 
 const FILTERS = ['All', 'DC Fast', 'AC Level 2'];
 
@@ -37,8 +32,34 @@ function AvailabilityBar({ available, total }: { available: number; total: numbe
 export default function StationsScreen() {
   const [filter, setFilter] = useState('All');
   const [expanded, setExpanded] = useState<string | null>(null);
+  const [stations, setStations] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
 
-  const filtered = filter === 'All' ? STATIONS : STATIONS.filter(s => s.type === filter);
+  useEffect(() => {
+    loadStations();
+  }, []);
+
+  const loadStations = async () => {
+    try {
+      const { status } = await Location.requestForegroundPermissionsAsync();
+      if (status !== 'granted') {
+        console.log('Location permission denied');
+        setLoading(false);
+        return;
+      }
+      const loc = await Location.getCurrentPositionAsync({});
+      console.log('Location:', loc.coords.latitude, loc.coords.longitude);
+      const data = await fetchStations(loc.coords.latitude, loc.coords.longitude);
+      console.log('Stations fetched:', data.length);
+      setStations(data);
+    } catch (err) {
+      console.log('Failed to load stations:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const filtered = filter === 'All' ? stations : stations.filter(s => s.type.includes(filter));
 
   return (
     <SafeAreaView style={styles.safe}>
@@ -48,7 +69,7 @@ export default function StationsScreen() {
       <View style={styles.header}>
         <View>
           <Text style={styles.headerTitle}>Charging Stations</Text>
-          <Text style={styles.headerSub}>{filtered.length} stations found along route</Text>
+          <Text style={styles.headerSub}>{loading ? 'Loading...' : `${filtered.length} stations found near you`}</Text>
         </View>
         <View style={styles.headerBadge}>
           <Ionicons name="flash" size={14} color={EV.bg} />
@@ -76,15 +97,25 @@ export default function StationsScreen() {
       </ScrollView>
 
       <ScrollView style={styles.scroll} showsVerticalScrollIndicator={false}>
-        {filtered.map((station, index) => {
-          const isExpanded = expanded === station.id;
-          const isFast = station.type === 'DC Fast';
-          return (
-            <TouchableOpacity
-              key={station.id}
-              style={[styles.card, isExpanded && styles.cardExpanded]}
-              onPress={() => setExpanded(isExpanded ? null : station.id)}
-              activeOpacity={0.85}>
+        {loading ? (
+          <View style={{ padding: 40, alignItems: 'center' }}>
+            <ActivityIndicator size="large" color={EV.primary} />
+            <Text style={{ color: EV.textMuted, marginTop: 12 }}>Finding stations near you...</Text>
+          </View>
+        ) : filtered.length === 0 ? (
+          <View style={{ padding: 40, alignItems: 'center' }}>
+            <Text style={{ color: EV.textMuted }}>No stations found nearby</Text>
+          </View>
+        ) : (
+          filtered.map((station) => {
+            const isExpanded = expanded === station.id;
+            const isFast = station.type === 'DC Fast';
+            return (
+              <TouchableOpacity
+                key={station.id}
+                style={[styles.card, isExpanded && styles.cardExpanded]}
+                onPress={() => setExpanded(isExpanded ? null : station.id)}
+                activeOpacity={0.85}>
 
               {/* Distance badge */}
               <View style={styles.distanceBadge}>
@@ -195,8 +226,9 @@ export default function StationsScreen() {
                 />
               </View>
             </TouchableOpacity>
-          );
-        })}
+            );
+          })
+        )}
         <View style={{ height: 24 }} />
       </ScrollView>
     </SafeAreaView>

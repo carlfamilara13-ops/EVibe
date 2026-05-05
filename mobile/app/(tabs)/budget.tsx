@@ -1,11 +1,13 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View, Text, StyleSheet, TouchableOpacity,
-  ScrollView, StatusBar, TextInput, Modal, Dimensions,
+  ScrollView, StatusBar, TextInput, Modal, Dimensions, Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { EV } from '@/constants/theme';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { addExpense as apiAddExpense, getTripExpenses, deleteExpense as apiDeleteExpense } from '@/services/api';
 
 const { width } = Dimensions.get('window');
 
@@ -18,19 +20,38 @@ const CATEGORIES = [
 
 type Expense = { id: string; category: string; label: string; amount: number; time: string };
 
-const INITIAL: Expense[] = [
-  { id: '1', category: 'charging', label: 'GreenCharge Hub', amount: 4.20, time: '09:14' },
-  { id: '2', category: 'food', label: 'Lunch stop', amount: 12.50, time: '12:30' },
-  { id: '3', category: 'charging', label: 'EcoVolt Station', amount: 2.80, time: '14:05' },
-];
-
 export default function BudgetScreen() {
   const [budget] = useState(80);
-  const [expenses, setExpenses] = useState<Expense[]>(INITIAL);
+  const [expenses, setExpenses] = useState<Expense[]>([]);
+  const [tripId, setTripId] = useState<string | null>(null);
   const [modal, setModal] = useState(false);
   const [newLabel, setNewLabel] = useState('');
   const [newAmount, setNewAmount] = useState('');
   const [newCat, setNewCat] = useState('charging');
+
+  useEffect(() => {
+    loadExpenses();
+  }, []);
+
+  const loadExpenses = async () => {
+    try {
+      const trip = await AsyncStorage.getItem('activeTrip');
+      if (!trip) return;
+      const parsed = JSON.parse(trip);
+      setTripId(parsed._id);
+      const res = await getTripExpenses(parsed._id);
+      const mapped = res.data.map((e: any) => ({
+        id: e._id,
+        category: e.category,
+        label: e.description,
+        amount: e.amount,
+        time: new Date(e.createdAt).toLocaleTimeString('en', { hour: '2-digit', minute: '2-digit' }),
+      }));
+      setExpenses(mapped);
+    } catch (err) {
+      console.log('No active trip found');
+    }
+  };
 
   const spent = expenses.reduce((s, e) => s + e.amount, 0);
   const remaining = budget - spent;
@@ -41,18 +62,29 @@ export default function BudgetScreen() {
   const catTotal = (key: string) => expenses.filter(e => e.category === key).reduce((s, e) => s + e.amount, 0);
   const getCat = (key: string) => CATEGORIES.find(c => c.key === key)!;
 
-  const addExpense = () => {
+  const addExpense = async () => {
     if (!newLabel || !newAmount) return;
-    setExpenses(prev => [...prev, {
-      id: Date.now().toString(),
-      category: newCat,
-      label: newLabel,
-      amount: parseFloat(newAmount),
-      time: new Date().toLocaleTimeString('en', { hour: '2-digit', minute: '2-digit' }),
-    }]);
-    setNewLabel('');
-    setNewAmount('');
-    setModal(false);
+    if (!tripId) return Alert.alert('No active trip', 'Start a trip first');
+    try {
+      const res = await apiAddExpense({
+        tripId,
+        category: newCat,
+        description: newLabel,
+        amount: parseFloat(newAmount),
+      });
+      setExpenses(prev => [...prev, {
+        id: res.data._id,
+        category: newCat,
+        label: newLabel,
+        amount: parseFloat(newAmount),
+        time: new Date().toLocaleTimeString('en', { hour: '2-digit', minute: '2-digit' }),
+      }]);
+      setNewLabel('');
+      setNewAmount('');
+      setModal(false);
+    } catch (err) {
+      Alert.alert('Error', 'Failed to save expense');
+    }
   };
 
   return (
