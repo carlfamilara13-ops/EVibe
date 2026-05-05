@@ -1,8 +1,10 @@
 import { DarkTheme, ThemeProvider } from '@react-navigation/native';
-import { Stack } from 'expo-router';
+import { Stack, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import 'react-native-reanimated';
 import { EV } from '@/constants/theme';
+import { useEffect } from 'react';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const EVTheme = {
   ...DarkTheme,
@@ -21,6 +23,24 @@ export const unstable_settings = {
 };
 
 export default function RootLayout() {
+  const router = useRouter();
+
+  useEffect(() => {
+    const checkAuth = async () => {
+      try {
+        const token = await AsyncStorage.getItem('token');
+        if (token) {
+          router.replace('/(tabs)');
+        } else {
+          router.replace('/login');
+        }
+      } catch {
+        router.replace('/login');
+      }
+    };
+    checkAuth();
+  }, []);
+
   return (
     <ThemeProvider value={EVTheme}>
       <Stack initialRouteName="login">

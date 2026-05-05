@@ -13,6 +13,7 @@ app.use(express.json());
 app.use('/api/auth', require('./src/routes/auth'));
 app.use('/api/trips', require('./src/routes/trips'));
 app.use('/api/expenses', require('./src/routes/expenses'));
+app.use('/api/gtfs', require('./src/routes/gtfs'));
 
 app.get('/', (req, res) => res.json({ message: 'EVibe API running' }));
 
