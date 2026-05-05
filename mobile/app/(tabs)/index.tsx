@@ -9,23 +9,43 @@ import * as Location from 'expo-location';
 import { Ionicons } from '@expo/vector-icons';
 import { EV } from '@/constants/theme';
 import { fetchStations } from '@/services/ocm';
-import { getRoute, geocode } from '@/services/ors';
+import { getRoute, geocode, autoComplete } from '@/services/ors';
+import { getCommuteRoute } from '@/services/commute';
+import { useRouter } from 'expo-router';
 
 const { height } = Dimensions.get('window');
 const PEEK = 72;
 const FULL = 304;
 
+const MODES = [
+  { key: 'walk', icon: 'walk', label: 'Walk', profile: 'foot-walking' },
+  { key: 'bike', icon: 'bicycle', label: 'Bike', profile: 'cycling-regular' },
+  { key: 'commute', icon: 'bus', label: 'Bus', profile: 'driving-car' },
+  { key: 'ev', icon: 'flash', label: 'EV', profile: 'driving-car' },
+];
+
 export default function MapScreen() {
+  const router = useRouter();
+  const [origin, setOrigin] = useState('');
   const [destination, setDestination] = useState('');
+  const [originCoords, setOriginCoords] = useState<{ latitude: number; longitude: number } | null>(null);
+  const [destCoords, setDestCoords] = useState<{ latitude: number; longitude: number } | null>(null);
+  const [mode, setMode] = useState('ev');
   const [selectedStation, setSelectedStation] = useState<string | null>(null);
   const [routeActive, setRouteActive] = useState(false);
   const [routeCoords, setRouteCoords] = useState<{ latitude: number; longitude: number }[]>([]);
   const [routeInfo, setRouteInfo] = useState<{ distanceKm: string; durationMin: number } | null>(null);
   const [userLocation, setUserLocation] = useState<{ latitude: number; longitude: number } | null>(null);
-  const [searchFocused, setSearchFocused] = useState(false);
   const [STATIONS, setSTATIONS] = useState<any[]>([]);
   const [routeLoading, setRouteLoading] = useState(false);
-  const [searchLoading, setSearchLoading] = useState(false);
+  const [originSuggestions, setOriginSuggestions] = useState<any[]>([]);
+  const [destSuggestions, setDestSuggestions] = useState<any[]>([]);
+  const [activeField, setActiveField] = useState<'origin' | 'dest' | null>(null);
+  const [commuteSteps, setCommuteSteps] = useState<any[]>([]);
+  const [commuteSuggestions, setCommuteSuggestions] = useState<any[]>([]);
+  const [selectedSuggestion, setSelectedSuggestion] = useState(0);
+  const originTimeout = useRef<any>(null);
+  const destTimeout = useRef<any>(null);
 
   const mapRef = useRef<MapView>(null);
   const sheetAnim = useRef(new Animated.Value(PEEK)).current;
@@ -106,6 +126,85 @@ export default function MapScreen() {
 
   const selectedS = STATIONS.find(s => s.id === selectedStation);
 
+  const stationMarkers = useMemo(() => STATIONS.map((s, index) => (
+    <Marker key={`${s.id}-${index}`} coordinate={s.coordinate} onPress={() => handleStationPress(s.id)}>
+      <View style={[styles.markerWrap, s.type === 'DC Fast' && styles.markerFast, selectedStation === s.id && styles.markerSelected]}>
+        <Ionicons name="flash" size={14} color={EV.bg} />
+      </View>
+    </Marker>
+  )), [STATIONS, selectedStation]);
+
+  const handleOriginChange = async (text: string) => {
+    setOrigin(text);
+    setOriginCoords(null);
+    if (originTimeout.current) clearTimeout(originTimeout.current);
+    if (text.length < 3) { setOriginSuggestions([]); return; }
+    originTimeout.current = setTimeout(async () => {
+      try { setOriginSuggestions(await autoComplete(text, userLocation?.latitude, userLocation?.longitude)); }
+      catch { setOriginSuggestions([]); }
+    }, 600);
+  };
+
+  const handleDestChange = async (text: string) => {
+    setDestination(text);
+    setDestCoords(null);
+    if (destTimeout.current) clearTimeout(destTimeout.current);
+    if (text.length < 3) { setDestSuggestions([]); return; }
+    destTimeout.current = setTimeout(async () => {
+      try { setDestSuggestions(await autoComplete(text, userLocation?.latitude, userLocation?.longitude)); }
+      catch { setDestSuggestions([]); }
+    }, 600);
+  };
+
+  const useCurrentLocation = async () => {
+    if (!userLocation) return;
+    setOrigin('📍 My Location');
+    setOriginCoords(userLocation);
+    setOriginSuggestions([]);
+  };
+
+  const handleCalculateRoute = async () => {
+    const from = originCoords;
+    const to = destCoords;
+    if (!from || !to) return;
+    const selectedMode = MODES.find(m => m.key === mode)!;
+    setRouteLoading(true);
+    setCommuteSteps([]);
+    setCommuteSuggestions([]);
+    try {
+      if (mode === 'commute') {
+        const result = await getCommuteRoute(from, to);
+        setCommuteSuggestions(result.suggestions);
+        setRouteInfo({ distanceKm: result.totalDistanceKm.toString(), durationMin: result.suggestions[0]?.totalDuration || 0 });
+        setRouteActive(true);
+        // Draw first suggestion coords on map
+        const firstCoords = result.suggestions[0]?.steps.flatMap((s: any) => s.coordinates || []) || [];
+        if (firstCoords.length > 1) {
+          setRouteCoords(firstCoords);
+          mapRef.current?.fitToCoordinates(firstCoords, {
+            edgePadding: { top: 260, right: 40, bottom: FULL + 20, left: 40 },
+            animated: true,
+          });
+        }
+      } else {
+        const result = await getRoute(from, to, selectedMode.profile);
+        setRouteCoords(result.coordinates);
+        setRouteInfo({ distanceKm: result.distanceKm, durationMin: result.durationMin });
+        setRouteActive(true);
+        const data = await fetchStations(to.latitude, to.longitude);
+        setSTATIONS(data);
+        mapRef.current?.fitToCoordinates(result.coordinates, {
+          edgePadding: { top: 260, right: 40, bottom: FULL + 20, left: 40 },
+          animated: true,
+        });
+      }
+    } catch (err: any) {
+      console.log('Route error:', err?.response?.data || err?.message);
+    } finally {
+      setRouteLoading(false);
+    }
+  };
+
   const handleStationPress = (id: string) => {
     setSelectedStation(id);
     const s = STATIONS.find(x => x.id === id)!;
@@ -142,41 +241,6 @@ export default function MapScreen() {
     }
   };
 
-  const handleSearch = async () => {
-    if (!destination.trim()) return;
-    setSearchLoading(true);
-    try {
-      const result = await geocode(destination);
-      mapRef.current?.animateToRegion({
-        latitude: result.latitude,
-        longitude: result.longitude,
-        latitudeDelta: 0.05,
-        longitudeDelta: 0.05,
-      }, 800);
-      const data = await fetchStations(result.latitude, result.longitude);
-      setSTATIONS(data);
-
-      if (userLocation && result.latitude && result.longitude) {
-        try {
-          const route = await getRoute(userLocation, { latitude: result.latitude, longitude: result.longitude });
-          setRouteCoords(route.coordinates);
-          setRouteInfo({ distanceKm: route.distanceKm, durationMin: route.durationMin });
-          setRouteActive(true);
-          mapRef.current?.fitToCoordinates(route.coordinates, {
-            edgePadding: { top: 120, right: 40, bottom: FULL + 20, left: 40 },
-            animated: true,
-          });
-        } catch (routeErr) {
-          console.log('Route failed, showing destination only:', routeErr);
-        }
-      }
-    } catch (err) {
-      console.log('Search failed:', err);
-    } finally {
-      setSearchLoading(false);
-    }
-  };
-
   return (
     <View style={styles.container}>
       <StatusBar barStyle="light-content" translucent backgroundColor="transparent" />
@@ -186,21 +250,15 @@ export default function MapScreen() {
         style={StyleSheet.absoluteFillObject}
         provider={undefined}
         initialRegion={{
-          latitude: userLocation?.latitude ?? 14.5995,
-          longitude: userLocation?.longitude ?? 120.9842,
-          latitudeDelta: 0.05,
-          longitudeDelta: 0.05,
+          latitude: userLocation?.latitude ?? 12.8797,
+          longitude: userLocation?.longitude ?? 121.7740,
+          latitudeDelta: userLocation ? 0.05 : 8,
+          longitudeDelta: userLocation ? 0.05 : 8,
         }}
         showsUserLocation
         showsMyLocationButton={false}
         showsCompass={false}>
-        {STATIONS.map((s, index) => (
-          <Marker key={`${s.id}-${index}`} coordinate={s.coordinate} onPress={() => handleStationPress(s.id)}>
-            <View style={[styles.markerWrap, s.type === 'DC Fast' && styles.markerFast, selectedStation === s.id && styles.markerSelected]}>
-              <Ionicons name="flash" size={14} color={EV.bg} />
-            </View>
-          </Marker>
-        ))}
+        {stationMarkers}
         {routeCoords.length > 1 && (
           <Polyline coordinates={routeCoords} strokeColor={EV.primary} strokeWidth={4} />
         )}
@@ -208,42 +266,104 @@ export default function MapScreen() {
 
       {/* Search overlay */}
       <SafeAreaView edges={['top']} style={styles.safeTop}>
-        <View style={styles.searchBar}>
-          <View style={[styles.searchInput, searchFocused && styles.searchFocused]}>
+        <View style={styles.searchPanel}>
+          {/* Place A */}
+          <View style={styles.inputRow}>
             <View style={styles.dotA}><View style={styles.dotAInner} /></View>
             <TextInput
               style={styles.searchText}
-              placeholder="Where are you going?"
+              placeholder="Place A — Starting point"
               placeholderTextColor={EV.textDim}
-              value={destination}
-              onChangeText={setDestination}
-              onFocus={() => setSearchFocused(true)}
-              onBlur={() => setSearchFocused(false)}
-              onSubmitEditing={handleSearch}
-              returnKeyType="search"
+              value={origin}
+              onChangeText={handleOriginChange}
+              onFocus={() => setActiveField('origin')}
             />
-            {searchLoading
-              ? <ActivityIndicator size="small" color={EV.primary} />
-              : destination
-              ? <TouchableOpacity onPress={() => { setDestination(''); setRouteActive(false); setSelectedStation(null); setRouteCoords([]); setRouteInfo(null); }}>
-                  <Ionicons name="close-circle" size={16} color={EV.textDim} />
-                </TouchableOpacity>
-              : <TouchableOpacity onPress={handleSearch}><Ionicons name="search" size={16} color={EV.primary} /></TouchableOpacity>}
-          </View>
-        </View>
-
-        {routeActive && routeInfo && (
-          <View style={styles.routeBar}>
-            <View style={styles.routeItem}><Ionicons name="navigate" size={13} color={EV.primary} /><Text style={styles.routeVal}>{routeInfo.distanceKm} km</Text></View>
-            <View style={styles.routeDivider} />
-            <View style={styles.routeItem}><Ionicons name="time-outline" size={13} color={EV.accent} /><Text style={styles.routeVal}>{routeInfo.durationMin} min</Text></View>
-            {selectedS && (<><View style={styles.routeDivider} />
-            <View style={styles.routeItem}><Ionicons name="flash-outline" size={13} color={EV.neon} /><Text style={styles.routeVal}>{selectedS.cost}</Text></View></>)}
-            <TouchableOpacity style={{ marginLeft: 'auto' as any }} onPress={() => { setRouteActive(false); setSelectedStation(null); setRouteCoords([]); setRouteInfo(null); }}>
-              <Ionicons name="close" size={14} color={EV.textMuted} />
+            <TouchableOpacity onPress={useCurrentLocation}>
+              <Ionicons name="locate" size={16} color={EV.primary} />
             </TouchableOpacity>
           </View>
-        )}
+
+          {originSuggestions.length > 0 && activeField === 'origin' && (
+            <View style={styles.suggestionsBox}>
+              {originSuggestions.map((s, i) => (
+                <TouchableOpacity key={i} style={[styles.suggestionItem, i < originSuggestions.length - 1 && styles.suggestionBorder]}
+                  onPress={() => { setOrigin(s.label); setOriginCoords({ latitude: s.latitude, longitude: s.longitude }); setOriginSuggestions([]); }}>
+                  <Ionicons name="location-outline" size={13} color={EV.primary} />
+                  <Text style={styles.suggestionText} numberOfLines={1}>{s.label}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          )}
+
+          <View style={styles.dividerLine} />
+
+          {/* Place B */}
+          <View style={styles.inputRow}>
+            <View style={styles.dotB} />
+            <TextInput
+              style={styles.searchText}
+              placeholder="Place B — Destination"
+              placeholderTextColor={EV.textDim}
+              value={destination}
+              onChangeText={handleDestChange}
+              onFocus={() => setActiveField('dest')}
+            />
+            {(origin || destination) && (
+              <TouchableOpacity onPress={() => { setOrigin(''); setDestination(''); setOriginCoords(null); setDestCoords(null); setRouteActive(false); setRouteCoords([]); setRouteInfo(null); }}>
+                <Ionicons name="close-circle" size={16} color={EV.textDim} />
+              </TouchableOpacity>
+            )}
+          </View>
+
+          {destSuggestions.length > 0 && activeField === 'dest' && (
+            <View style={styles.suggestionsBox}>
+              {destSuggestions.map((s, i) => (
+                <TouchableOpacity key={i} style={[styles.suggestionItem, i < destSuggestions.length - 1 && styles.suggestionBorder]}
+                  onPress={() => { setDestination(s.label); setDestCoords({ latitude: s.latitude, longitude: s.longitude }); setDestSuggestions([]); }}>
+                  <Ionicons name="location-outline" size={13} color={EV.danger} />
+                  <Text style={styles.suggestionText} numberOfLines={1}>{s.label}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          )}
+
+          {/* Mode selector */}
+          <View style={styles.modeRow}>
+            {MODES.map(m => (
+              <TouchableOpacity key={m.key} style={[styles.modeBtn, mode === m.key && styles.modeBtnActive]} onPress={() => setMode(m.key)}>
+                <Ionicons name={m.icon as any} size={16} color={mode === m.key ? EV.bg : EV.textMuted} />
+                <Text style={[styles.modeLabel, mode === m.key && styles.modeLabelActive]}>{m.label}</Text>
+              </TouchableOpacity>
+            ))}
+            <TouchableOpacity
+              style={[styles.goBtn, (!originCoords || !destCoords) && styles.goBtnDisabled]}
+              onPress={handleCalculateRoute}
+              disabled={!originCoords || !destCoords || routeLoading}>
+              {routeLoading
+                ? <ActivityIndicator size="small" color={EV.bg} />
+                : <Ionicons name="arrow-forward" size={18} color={EV.bg} />}
+            </TouchableOpacity>
+          </View>
+
+          {routeActive && routeInfo && (
+            <View style={styles.routeBar}>
+              <View style={styles.routeItem}><Ionicons name="navigate" size={13} color={EV.primary} /><Text style={styles.routeVal}>{routeInfo.distanceKm} km</Text></View>
+              <View style={styles.routeDivider} />
+              <View style={styles.routeItem}><Ionicons name="time-outline" size={13} color={EV.accent} /><Text style={styles.routeVal}>{routeInfo.durationMin} min</Text></View>
+              <TouchableOpacity style={{ marginLeft: 'auto' as any }} onPress={() => { setRouteActive(false); setRouteCoords([]); setRouteInfo(null); setCommuteSteps([]); }}>
+                <Ionicons name="close" size={14} color={EV.textMuted} />
+              </TouchableOpacity>
+            </View>
+          )}
+
+          {commuteSuggestions.length > 0 && (
+            <View style={styles.routeBar}>
+              <Ionicons name="bus" size={13} color={EV.info} />
+              <Text style={styles.routeVal}>{commuteSuggestions.length} route{commuteSuggestions.length > 1 ? 's' : ''} found</Text>
+              <Text style={styles.routeVal}>· {routeInfo?.distanceKm} km</Text>
+            </View>
+          )}
+        </View>
       </SafeAreaView>
 
       {/* Map controls */}
@@ -315,14 +435,71 @@ export default function MapScreen() {
               }
             </TouchableOpacity>
           </View>
-
+        ) : commuteSuggestions.length > 0 ? (
+          <ScrollView style={styles.sheetContent} showsVerticalScrollIndicator={false}>
+            {commuteSuggestions.map((suggestion: any, si: number) => (
+              <TouchableOpacity
+                key={si}
+                style={[styles.journeyCard, selectedSuggestion === si && { borderColor: suggestion.color }]}
+                onPress={() => {
+                  setSelectedSuggestion(si);
+                  const coords = suggestion.steps.flatMap((s: any) => s.coordinates || []);
+                  if (coords.length > 1) {
+                    setRouteCoords(coords);
+                    mapRef.current?.fitToCoordinates(coords, {
+                      edgePadding: { top: 260, right: 40, bottom: FULL + 20, left: 40 },
+                      animated: true,
+                    });
+                  }
+                }}
+                activeOpacity={0.85}>
+                <View style={styles.journeyHeader}>
+                  <View style={styles.journeyHeaderLeft}>
+                    <View style={[styles.journeyBadge, { backgroundColor: suggestion.color }]}>
+                      <Text style={styles.journeyBadgeText}>{suggestion.line}</Text>
+                    </View>
+                    <View>
+                      <Text style={styles.journeyDuration}>{suggestion.totalDuration} min</Text>
+                      <Text style={styles.journeyFare}>₱{suggestion.totalFare} estimated</Text>
+                    </View>
+                  </View>
+                  {selectedSuggestion === si && (
+                    <View style={[styles.selectedBadge, { backgroundColor: suggestion.color + '20', borderColor: suggestion.color }]}>
+                      <Text style={[styles.selectedBadgeText, { color: suggestion.color }]}>Selected</Text>
+                    </View>
+                  )}
+                </View>
+                <View style={styles.timeline}>
+                  {suggestion.steps.map((step: any, i: number) => (
+                    <View key={i} style={styles.timelineRow}>
+                      <View style={styles.timelineLeft}>
+                        <View style={[styles.timelineIcon, { backgroundColor: step.color + '20', borderColor: step.color }]}>
+                          <Ionicons name={step.type === 'walk' ? 'walk' : step.type === 'train' ? 'train' : 'bus'} size={14} color={step.color} />
+                        </View>
+                        {i < suggestion.steps.length - 1 && (
+                          <View style={[styles.timelineLine, { backgroundColor: step.color + '40' }]} />
+                        )}
+                      </View>
+                      <View style={styles.timelineContent}>
+                        <Text style={styles.timelineLabel}>{step.label}</Text>
+                        <Text style={styles.timelineDetail}>{step.detail}</Text>
+                        {step.duration > 0 && (
+                          <View style={styles.timelineDurationRow}>
+                            <Ionicons name="time-outline" size={10} color={EV.textDim} />
+                            <Text style={styles.timelineDuration}>{step.duration} min</Text>
+                            {step.fare > 0 && <Text style={styles.timelineFare}>₱{step.fare}</Text>}
+                          </View>
+                        )}
+                      </View>
+                    </View>
+                  ))}
+                </View>
+              </TouchableOpacity>
+            ))}
+            <View style={{ height: 16 }} />
+          </ScrollView>
         ) : (
-          <View
-            style={styles.sheetContent}
-            onLayout={e => {
-              const total = e.nativeEvent.layout.height + 72;
-              if (total > PEEK) startY.current = startY.current; // keep ref
-            }}>
+          <View style={styles.sheetContent}>
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.stationList}>
               {STATIONS.map((s, index) => (
                 <TouchableOpacity key={`sheet-${s.id}-${index}`} style={styles.stationCard} onPress={() => handleStationPress(s.id)} activeOpacity={0.85}>
@@ -376,27 +553,38 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: EV.bg },
   safeTop: { position: 'absolute', top: 0, left: 0, right: 0, zIndex: 10 },
 
-  searchBar: { paddingHorizontal: 16, paddingBottom: 8 },
-  searchInput: {
-    flexDirection: 'row', alignItems: 'center', gap: 10,
-    backgroundColor: EV.bgCard + 'F5', borderRadius: 16,
-    paddingHorizontal: 14, paddingVertical: 12,
-    borderWidth: 1, borderColor: EV.border,
+  searchPanel: {
+    marginHorizontal: 12,
+    backgroundColor: EV.bgCard + 'F8',
+    borderRadius: 18,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderWidth: 1,
+    borderColor: EV.border,
   },
-  searchFocused: { borderColor: EV.primary },
-  dotA: { width: 14, height: 14, borderRadius: 7, borderWidth: 2, borderColor: EV.primary, alignItems: 'center', justifyContent: 'center' },
-  dotAInner: { width: 5, height: 5, borderRadius: 3, backgroundColor: EV.primary },
-  searchText: { flex: 1, color: EV.text, fontSize: 15, fontWeight: '500' },
+  inputRow: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 6 },
+  dotA: { width: 12, height: 12, borderRadius: 6, borderWidth: 2, borderColor: EV.primary, alignItems: 'center', justifyContent: 'center' },
+  dotAInner: { width: 4, height: 4, borderRadius: 2, backgroundColor: EV.primary },
+  dotB: { width: 12, height: 12, borderRadius: 3, backgroundColor: EV.danger },
+  dividerLine: { height: 1, backgroundColor: EV.border, marginVertical: 2, marginLeft: 22 },
+  searchText: { flex: 1, color: EV.text, fontSize: 14, fontWeight: '500' },
+  modeRow: { flexDirection: 'row', gap: 6, marginTop: 10, alignItems: 'center' },
+  modeBtn: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 4, backgroundColor: EV.bgSurface, borderRadius: 10, paddingVertical: 8, borderWidth: 1, borderColor: EV.border },
+  modeBtnActive: { backgroundColor: EV.primary, borderColor: EV.primary },
+  modeLabel: { color: EV.textDim, fontSize: 10, fontWeight: '700' },
+  modeLabelActive: { color: EV.bg },
+  goBtn: { width: 38, height: 38, borderRadius: 10, backgroundColor: EV.primary, alignItems: 'center', justifyContent: 'center' },
+  goBtnDisabled: { backgroundColor: EV.border },
 
   routeBar: {
-    flexDirection: 'row', alignItems: 'center', marginHorizontal: 16,
-    backgroundColor: EV.bgCard + 'F5', borderRadius: 14,
-    paddingVertical: 10, paddingHorizontal: 16,
-    borderWidth: 1, borderColor: EV.primaryDark, gap: 12,
+    flexDirection: 'row', alignItems: 'center', marginTop: 8,
+    backgroundColor: EV.bgSurface, borderRadius: 10,
+    paddingVertical: 8, paddingHorizontal: 12,
+    borderWidth: 1, borderColor: EV.primaryDark, gap: 10,
   },
-  routeItem: { flexDirection: 'row', alignItems: 'center', gap: 5 },
-  routeVal: { fontSize: 13, fontWeight: '700', color: EV.text },
-  routeDivider: { width: 1, height: 16, backgroundColor: EV.border },
+  routeItem: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  routeVal: { fontSize: 12, fontWeight: '700', color: EV.text },
+  routeDivider: { width: 1, height: 14, backgroundColor: EV.border },
 
   mapControls: { position: 'absolute', right: 16, gap: 10, zIndex: 5 },
   mapBtn: {
@@ -485,4 +673,68 @@ const styles = StyleSheet.create({
     backgroundColor: EV.primary, borderRadius: 14, paddingVertical: 15,
   },
   navigateBtnText: { color: EV.bg, fontWeight: '800', fontSize: 15 },
+
+  suggestionsBox: {
+    marginHorizontal: 16,
+    backgroundColor: EV.bgCard,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: EV.border,
+    overflow: 'hidden',
+    marginTop: 4,
+  },
+  suggestionItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+  },
+  suggestionBorder: { borderBottomWidth: 1, borderBottomColor: EV.border },
+  suggestionText: { flex: 1, color: EV.text, fontSize: 13 },
+
+  commuteSteps: { marginTop: 6, backgroundColor: EV.bgSurface, borderRadius: 10, overflow: 'hidden', borderWidth: 1, borderColor: EV.border },
+  commuteStep: { flexDirection: 'row', alignItems: 'center', gap: 8, padding: 8, borderBottomWidth: 1, borderBottomColor: EV.border },
+  stepDot: { width: 8, height: 8, borderRadius: 4 },
+  stepInfo: { flex: 1 },
+  stepLabel: { color: EV.text, fontSize: 11, fontWeight: '700' },
+  stepDetail: { color: EV.textMuted, fontSize: 10, marginTop: 1 },
+  commuteSuggestion: { backgroundColor: EV.bgSurface, borderRadius: 10, borderWidth: 1, borderColor: EV.border, marginTop: 6, overflow: 'hidden' },
+  suggestionHeader: { flexDirection: 'row', alignItems: 'center', gap: 8, padding: 8, borderBottomWidth: 1, borderBottomColor: EV.border },
+  suggestionBadge: { borderRadius: 6, paddingHorizontal: 8, paddingVertical: 3 },
+  suggestionBadgeText: { color: EV.bg, fontSize: 10, fontWeight: '800' },
+  suggestionDuration: { color: EV.text, fontSize: 11, fontWeight: '700', flex: 1 },
+  suggestionFare: { color: EV.primary, fontSize: 11, fontWeight: '800' },
+
+  journeyCard: {
+    backgroundColor: EV.bgSurface, borderRadius: 16, borderWidth: 1,
+    borderColor: EV.border, marginBottom: 12, overflow: 'hidden',
+  },
+  journeyHeader: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    padding: 14, borderBottomWidth: 1, borderBottomColor: EV.border,
+  },
+  journeyHeaderLeft: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  journeyBadge: { borderRadius: 8, paddingHorizontal: 10, paddingVertical: 5 },
+  journeyBadgeText: { color: EV.bg, fontSize: 11, fontWeight: '800' },
+  journeyDuration: { color: EV.text, fontSize: 15, fontWeight: '800' },
+  journeyFare: { color: EV.textMuted, fontSize: 11, marginTop: 2 },
+  selectedBadge: { borderRadius: 8, paddingHorizontal: 8, paddingVertical: 4, borderWidth: 1 },
+  selectedBadgeText: { fontSize: 10, fontWeight: '700' },
+
+  timeline: { padding: 14, gap: 0 },
+  timelineRow: { flexDirection: 'row', gap: 12, minHeight: 52 },
+  timelineLeft: { alignItems: 'center', width: 32 },
+  timelineIcon: {
+    width: 32, height: 32, borderRadius: 10,
+    alignItems: 'center', justifyContent: 'center',
+    borderWidth: 1,
+  },
+  timelineLine: { width: 2, flex: 1, marginVertical: 4, borderRadius: 1 },
+  timelineContent: { flex: 1, paddingBottom: 12 },
+  timelineLabel: { color: EV.text, fontSize: 13, fontWeight: '700', marginBottom: 2 },
+  timelineDetail: { color: EV.textMuted, fontSize: 11, marginBottom: 4 },
+  timelineDurationRow: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  timelineDuration: { color: EV.textDim, fontSize: 10 },
+  timelineFare: { color: EV.primary, fontSize: 10, fontWeight: '700', marginLeft: 6 },
 });

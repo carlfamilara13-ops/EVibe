@@ -1,11 +1,13 @@
 import React from 'react';
 import {
   View, Text, StyleSheet, ScrollView,
-  StatusBar, Dimensions,
+  StatusBar, Dimensions, TouchableOpacity, Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { EV } from '@/constants/theme';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useRouter } from 'expo-router';
 
 const { width } = Dimensions.get('window');
 
@@ -41,10 +43,22 @@ function getMessage(score: number) {
 }
 
 export default function ScoreScreen() {
+  const router = useRouter();
   const { score, budget, carbon, efficiency } = CURRENT;
   const color = getScoreColor(score);
   const stars = getStars(score);
   const msg = getMessage(score);
+
+  const handleLogout = async () => {
+    Alert.alert('Logout', 'Are you sure you want to logout?', [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Logout', style: 'destructive', onPress: async () => {
+        await AsyncStorage.removeItem('token');
+        await AsyncStorage.removeItem('user');
+        router.replace('/login');
+      }},
+    ]);
+  };
 
   const metrics = [
     { label: 'Budget Score', value: budget, icon: 'wallet-outline', color: EV.accent, desc: 'Stayed within budget' },
@@ -61,9 +75,14 @@ export default function ScoreScreen() {
           <Text style={styles.headerTitle}>Eco Score</Text>
           <Text style={styles.headerSub}>Your green driving rating</Text>
         </View>
-        <View style={[styles.starBadge, { backgroundColor: EV.warning }]}>
-          <Ionicons name="star" size={14} color={EV.bg} />
-          <Text style={styles.starBadgeText}>{stars}/5</Text>
+        <View style={{ flexDirection: 'row', gap: 10, alignItems: 'center' }}>
+          <View style={[styles.starBadge, { backgroundColor: EV.warning }]}>
+            <Ionicons name="star" size={14} color={EV.bg} />
+            <Text style={styles.starBadgeText}>{stars}/5</Text>
+          </View>
+          <TouchableOpacity onPress={handleLogout} style={styles.logoutBtn}>
+            <Ionicons name="log-out-outline" size={20} color={EV.danger} />
+          </TouchableOpacity>
         </View>
       </View>
 
@@ -204,6 +223,7 @@ const styles = StyleSheet.create({
     paddingVertical: 7,
   },
   starBadgeText: { fontSize: 13, fontWeight: '800', color: EV.bg },
+  logoutBtn: { width: 36, height: 36, borderRadius: 10, backgroundColor: EV.danger + '20', alignItems: 'center', justifyContent: 'center' },
 
   heroCard: {
     margin: 16,

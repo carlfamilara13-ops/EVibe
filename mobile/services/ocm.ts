@@ -11,7 +11,7 @@ export const fetchStations = async (latitude: number, longitude: number, distanc
       longitude,
       distance,
       distanceunit: 'km',
-      maxresults: 20,
+      maxresults: 10,
       compact: true,
       verbose: false,
       output: 'json',
