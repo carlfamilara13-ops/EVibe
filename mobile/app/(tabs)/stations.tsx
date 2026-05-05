@@ -189,15 +189,15 @@ export default function StationsScreen() {
                       <View style={[styles.detailIcon, { backgroundColor: EV.info + '20' }]}>
                         <Ionicons name="hardware-chip-outline" size={16} color={EV.info} />
                       </View>
-                      <Text style={styles.detailVal}>{station.connectors[0]}</Text>
+                      <Text style={styles.detailVal}>{station.connectors?.[0] || 'N/A'}</Text>
                       <Text style={styles.detailLbl}>Connector</Text>
                     </View>
                   </View>
 
-                  {station.connectors.length > 1 && (
+                  {station.connectors && station.connectors.length > 1 && (
                     <View style={styles.connectorRow}>
-                      {station.connectors.map(c => (
-                        <View key={c} style={styles.connectorChip}>
+                      {station.connectors.map((c: string, idx: number) => (
+                        <View key={`${c}-${idx}`} style={styles.connectorChip}>
                           <Text style={styles.connectorChipText}>{c}</Text>
                         </View>
                       ))}

@@ -1,29 +1,90 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import {
   View, Text, StyleSheet, ScrollView,
-  StatusBar, Dimensions,
+  StatusBar, Dimensions, ActivityIndicator, TouchableOpacity,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { EV } from '@/constants/theme';
+import { useCarbonData } from '@/hooks/useCarbonData';
+import { useRouter } from 'expo-router';
+import { useFocusEffect } from '@react-navigation/native';
 
 const { width } = Dimensions.get('window');
 
-const TRIP = {
-  distanceKm: 142,
-  energyKwh: 28.4,
-  gridEmissionFactor: 0.233,
-  gasEmissionFactor: 0.21,
-};
-
-const evCO2 = TRIP.energyKwh * TRIP.gridEmissionFactor;
-const gasCO2 = TRIP.distanceKm * TRIP.gasEmissionFactor;
-const saved = gasCO2 - evCO2;
-const treesSaved = saved / 21.77;
-const reductionPct = ((saved / gasCO2) * 100).toFixed(0);
-const evPct = evCO2 / gasCO2;
-
 export default function CarbonScreen() {
+  const { loading, error, carbonData, refetch } = useCarbonData();
+  const router = useRouter();
+
+  // Reload data when screen comes into focus
+  useFocusEffect(
+    React.useCallback(() => {
+      refetch();
+    }, [])
+  );
+
+  // Loading skeleton
+  if (loading) {
+    return (
+      <SafeAreaView style={styles.safe}>
+        <StatusBar barStyle="light-content" backgroundColor={EV.bg} />
+        <View style={styles.header}>
+          <View>
+            <Text style={styles.headerTitle}>Carbon Footprint</Text>
+            <Text style={styles.headerSub}>Your environmental impact</Text>
+          </View>
+          <View style={styles.leafBadge}>
+            <Ionicons name="leaf" size={16} color={EV.bg} />
+          </View>
+        </View>
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color={EV.primary} />
+          <Text style={styles.loadingText}>Loading carbon data...</Text>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  // Error or no data
+  if (error || !carbonData) {
+    return (
+      <SafeAreaView style={styles.safe}>
+        <StatusBar barStyle="light-content" backgroundColor={EV.bg} />
+        <View style={styles.header}>
+          <View>
+            <Text style={styles.headerTitle}>Carbon Footprint</Text>
+            <Text style={styles.headerSub}>Your environmental impact</Text>
+          </View>
+          <View style={styles.leafBadge}>
+            <Ionicons name="leaf" size={16} color={EV.bg} />
+          </View>
+        </View>
+        <View style={styles.errorContainer}>
+          <Ionicons name="leaf-outline" size={64} color={EV.textDim} />
+          <Text style={styles.errorTitle}>No Carbon Data Available</Text>
+          <Text style={styles.errorText}>
+            {error || 'Start a trip to see your carbon footprint'}
+          </Text>
+          <TouchableOpacity style={styles.setupButton} onPress={() => router.push('/setup')}>
+            <Ionicons name="add-circle" size={20} color={EV.bg} />
+            <Text style={styles.setupButtonText}>Plan a Trip</Text>
+          </TouchableOpacity>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  // Extract data
+  const saved = carbonData.savedKg || 0;
+  const treesSaved = carbonData.treesEquivalent || 0;
+  const reductionPct = carbonData.savedPercentage || 0;
+  const evCO2 = carbonData.tripEmission || 0;
+  const gasCO2 = carbonData.carEmission || 0;
+  const distanceKm = carbonData.distanceKm || 0;
+  const energyKwh = carbonData.energyKwh || 0;
+  const evPct = gasCO2 > 0 ? evCO2 / gasCO2 : 0;
+  const gridEmissionFactor = 0.233; // Grid emission factor for display
+
   return (
     <SafeAreaView style={styles.safe}>
       <StatusBar barStyle="light-content" backgroundColor={EV.bg} />
@@ -33,8 +94,13 @@ export default function CarbonScreen() {
           <Text style={styles.headerTitle}>Carbon Footprint</Text>
           <Text style={styles.headerSub}>Your environmental impact</Text>
         </View>
-        <View style={styles.leafBadge}>
-          <Ionicons name="leaf" size={16} color={EV.bg} />
+        <View style={{ flexDirection: 'row', gap: 8 }}>
+          <TouchableOpacity onPress={() => router.push('/debug-carbon')} style={styles.debugBtn}>
+            <Ionicons name="bug" size={16} color={EV.textMuted} />
+          </TouchableOpacity>
+          <View style={styles.leafBadge}>
+            <Ionicons name="leaf" size={16} color={EV.bg} />
+          </View>
         </View>
       </View>
 
@@ -69,7 +135,7 @@ export default function CarbonScreen() {
           {/* Reduction badge */}
           <View style={styles.reductionBadge}>
             <Ionicons name="trending-down" size={16} color={EV.primary} />
-            <Text style={styles.reductionText}>{reductionPct}% less emissions than a gas car</Text>
+            <Text style={styles.reductionText}>{reductionPct.toFixed(0)}% less emissions than a gas car</Text>
           </View>
         </View>
 
@@ -82,7 +148,7 @@ export default function CarbonScreen() {
             <View style={styles.barItem}>
               <View style={styles.barLabelRow}>
                 <View style={[styles.barDot, { backgroundColor: EV.primary }]} />
-                <Text style={styles.barName}>Your EV</Text>
+                <Text style={styles.barName}>Your {carbonData.mode === 'ev' ? 'EV' : carbonData.mode}</Text>
                 <Text style={[styles.barKg, { color: EV.primary }]}>{evCO2.toFixed(1)} kg</Text>
               </View>
               <View style={styles.barTrack}>
@@ -106,9 +172,9 @@ export default function CarbonScreen() {
           <View style={styles.compareNumbers}>
             <View style={styles.compareBox}>
               <View style={[styles.compareIconBox, { backgroundColor: EV.primary + '20' }]}>
-                <Ionicons name="flash" size={22} color={EV.primary} />
+                <Ionicons name={carbonData.mode === 'ev' ? 'flash' : carbonData.mode === 'biking' ? 'bicycle' : carbonData.mode === 'walking' ? 'walk' : 'bus'} size={22} color={EV.primary} />
               </View>
-              <Text style={styles.compareBoxLabel}>Electric</Text>
+              <Text style={styles.compareBoxLabel}>{carbonData.mode === 'ev' ? 'Electric' : carbonData.mode}</Text>
               <Text style={[styles.compareBoxVal, { color: EV.primary }]}>{evCO2.toFixed(1)}</Text>
               <Text style={styles.compareBoxUnit}>kg CO₂</Text>
             </View>
@@ -134,8 +200,8 @@ export default function CarbonScreen() {
         <Text style={styles.sectionTitle}>TRIP DETAILS</Text>
         <View style={styles.statsRow}>
           {[
-            { icon: 'speedometer-outline', label: 'Distance', value: `${TRIP.distanceKm} km`, color: EV.accent },
-            { icon: 'flash-outline', label: 'Energy', value: `${TRIP.energyKwh} kWh`, color: EV.primary },
+            { icon: 'speedometer-outline', label: 'Distance', value: `${distanceKm.toFixed(1)} km`, color: EV.accent },
+            { icon: 'flash-outline', label: 'Energy', value: energyKwh > 0 ? `${energyKwh.toFixed(1)} kWh` : 'N/A', color: EV.primary },
           ].map(s => (
             <View key={s.label} style={styles.statCard}>
               <View style={[styles.statIcon, { backgroundColor: s.color + '18' }]}>
@@ -148,8 +214,8 @@ export default function CarbonScreen() {
         </View>
         <View style={styles.statsRow}>
           {[
-            { icon: 'cloud-outline', label: 'Grid Factor', value: `${TRIP.gridEmissionFactor} kg/kWh`, color: EV.info },
-            { icon: 'trending-down-outline', label: 'Reduction', value: `${reductionPct}%`, color: EV.neon },
+            { icon: 'cloud-outline', label: 'Grid Factor', value: `${gridEmissionFactor} kg/kWh`, color: EV.info },
+            { icon: 'trending-down-outline', label: 'Reduction', value: `${reductionPct.toFixed(0)}%`, color: EV.neon },
           ].map(s => (
             <View key={s.label} style={styles.statCard}>
               <View style={[styles.statIcon, { backgroundColor: s.color + '18' }]}>
@@ -169,7 +235,7 @@ export default function CarbonScreen() {
           <View style={styles.impactBody}>
             <Text style={styles.impactTitle}>You're making a difference 🌍</Text>
             <Text style={styles.impactText}>
-              By choosing electric, you emitted {reductionPct}% less CO₂ than a gasoline car — equivalent to planting {treesSaved.toFixed(1)} trees.
+              By choosing {carbonData.mode === 'ev' ? 'electric' : carbonData.mode}, you emitted {reductionPct.toFixed(0)}% less CO₂ than a gasoline car — equivalent to planting {treesSaved.toFixed(1)} trees.
             </Text>
           </View>
         </View>
@@ -203,6 +269,25 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  debugBtn: {
+    width: 38,
+    height: 38,
+    borderRadius: 12,
+    backgroundColor: EV.bgCard,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: EV.border,
+  },
+
+  loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', gap: 16 },
+  loadingText: { fontSize: 14, color: EV.textMuted, fontWeight: '600' },
+
+  errorContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 40, gap: 12 },
+  errorTitle: { fontSize: 18, fontWeight: '800', color: EV.text },
+  errorText: { fontSize: 14, color: EV.textMuted, textAlign: 'center', lineHeight: 20 },
+  setupButton: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: EV.primary, paddingHorizontal: 24, paddingVertical: 14, borderRadius: 12, marginTop: 8 },
+  setupButtonText: { color: EV.bg, fontWeight: '700', fontSize: 15 },
 
   heroCard: {
     margin: 16,

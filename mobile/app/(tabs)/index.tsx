@@ -12,14 +12,16 @@ import { fetchStations } from '@/services/ocm';
 import { getRoute, geocode, autoComplete } from '@/services/ors';
 import { getCommuteRoute } from '@/services/commute';
 import { useRouter } from 'expo-router';
+import { createTrip, calculateTripCarbon } from '@/services/api';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const { height } = Dimensions.get('window');
 const PEEK = 72;
 const FULL = 304;
 
 const MODES = [
-  { key: 'walk', icon: 'walk', label: 'Walk', profile: 'foot-walking' },
-  { key: 'bike', icon: 'bicycle', label: 'Bike', profile: 'cycling-regular' },
+  { key: 'walking', icon: 'walk', label: 'Walk', profile: 'foot-walking' },
+  { key: 'biking', icon: 'bicycle', label: 'Bike', profile: 'cycling-regular' },
   { key: 'commute', icon: 'bus', label: 'Bus', profile: 'driving-car' },
   { key: 'ev', icon: 'flash', label: 'EV', profile: 'driving-car' },
 ];
@@ -44,6 +46,7 @@ export default function MapScreen() {
   const [commuteSteps, setCommuteSteps] = useState<any[]>([]);
   const [commuteSuggestions, setCommuteSuggestions] = useState<any[]>([]);
   const [selectedSuggestion, setSelectedSuggestion] = useState(0);
+  const [savingTrip, setSavingTrip] = useState(false);
   const originTimeout = useRef<any>(null);
   const destTimeout = useRef<any>(null);
 
@@ -241,6 +244,42 @@ export default function MapScreen() {
     }
   };
 
+  const handleSaveTrip = async () => {
+    if (!routeInfo) return;
+    setSavingTrip(true);
+    try {
+      const userStr = await AsyncStorage.getItem('user');
+      const user = userStr ? JSON.parse(userStr) : {};
+      if (!user.id) {
+        setSavingTrip(false);
+        return;
+      }
+
+      // For commute mode, use the selected suggestion's distance
+      let tripDistance = parseFloat(routeInfo.distanceKm);
+      if (mode === 'commute' && commuteSuggestions.length > 0) {
+        const selectedRoute = commuteSuggestions[selectedSuggestion];
+        tripDistance = selectedRoute.totalDistanceKm || tripDistance;
+      }
+
+      const tripRes = await createTrip({
+        userId: user.id,
+        origin: origin || 'Place A',
+        destination: destination || 'Place B',
+        distance: tripDistance,
+        mode,
+        budget: 0,
+      });
+
+      await calculateTripCarbon(tripRes.data._id, tripDistance, mode);
+      await AsyncStorage.setItem('activeTrip', JSON.stringify(tripRes.data));
+    } catch (err: any) {
+      console.log('Save trip error:', err?.response?.data || err?.message);
+    } finally {
+      setSavingTrip(false);
+    }
+  };
+
   return (
     <View style={styles.container}>
       <StatusBar barStyle="light-content" translucent backgroundColor="transparent" />
@@ -354,6 +393,19 @@ export default function MapScreen() {
                 <Ionicons name="close" size={14} color={EV.textMuted} />
               </TouchableOpacity>
             </View>
+          )}
+
+          {routeActive && routeInfo && (
+            <TouchableOpacity style={styles.saveTripBtn} onPress={handleSaveTrip} disabled={savingTrip}>
+              {savingTrip ? (
+                <ActivityIndicator size="small" color={EV.bg} />
+              ) : (
+                <>
+                  <Ionicons name="leaf" size={16} color={EV.bg} />
+                  <Text style={styles.saveTripText}>Save Trip & View Carbon</Text>
+                </>
+              )}
+            </TouchableOpacity>
           )}
 
           {commuteSuggestions.length > 0 && (
@@ -585,6 +637,13 @@ const styles = StyleSheet.create({
   routeItem: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   routeVal: { fontSize: 12, fontWeight: '700', color: EV.text },
   routeDivider: { width: 1, height: 14, backgroundColor: EV.border },
+
+  saveTripBtn: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
+    backgroundColor: EV.primary, borderRadius: 12, paddingVertical: 12,
+    marginTop: 8,
+  },
+  saveTripText: { color: EV.bg, fontSize: 13, fontWeight: '800' },
 
   mapControls: { position: 'absolute', right: 16, gap: 10, zIndex: 5 },
   mapBtn: {

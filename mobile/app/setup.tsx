@@ -8,6 +8,8 @@ import { Ionicons } from '@expo/vector-icons';
 import { EV } from '@/constants/theme';
 import * as Location from 'expo-location';
 import { getRoute, geocode, autoComplete } from '@/services/ors';
+import { createTrip, calculateTripCarbon } from '@/services/api';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const MODES = [
   { key: 'walk', label: 'Walk', icon: 'walk', profile: 'foot-walking', co2: 0, color: EV.primary },
@@ -98,6 +100,43 @@ export default function SetupScreen() {
     } catch (err: any) {
       console.log('Route error:', err?.response?.data || err?.message);
       Alert.alert('Error', 'Could not calculate route. Try different locations.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const startTrip = async () => {
+    if (!routeInfo) return;
+    setLoading(true);
+    try {
+      const userStr = await AsyncStorage.getItem('user');
+      const user = userStr ? JSON.parse(userStr) : {};
+      if (!user.id) {
+        Alert.alert('Error', 'Please login first');
+        setLoading(false);
+        return;
+      }
+
+      // Create trip
+      const tripRes = await createTrip({
+        userId: user.id,
+        origin,
+        destination,
+        distance: parseFloat(routeInfo.distanceKm),
+        mode,
+        budget: 0,
+      });
+
+      // Calculate carbon data
+      await calculateTripCarbon(tripRes.data._id, parseFloat(routeInfo.distanceKm), mode);
+
+      // Save to AsyncStorage
+      await AsyncStorage.setItem('activeTrip', JSON.stringify(tripRes.data));
+
+      router.push('/(tabs)');
+    } catch (err: any) {
+      console.log('Start trip error:', err?.response?.data || err?.message);
+      Alert.alert('Error', 'Failed to start trip');
     } finally {
       setLoading(false);
     }
@@ -215,9 +254,9 @@ export default function SetupScreen() {
 
       <TouchableOpacity
         style={[styles.button, !routeInfo && styles.buttonDisabled]}
-        onPress={() => router.push('/(tabs)')}
-        disabled={!routeInfo}>
-        <Text style={styles.buttonText}>Start Trip →</Text>
+        onPress={startTrip}
+        disabled={!routeInfo || loading}>
+        {loading ? <ActivityIndicator color={EV.bg} /> : <Text style={styles.buttonText}>Start Trip →</Text>}
       </TouchableOpacity>
     </ScrollView>
   );

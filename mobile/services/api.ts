@@ -23,6 +23,9 @@ export const createTrip = (data: object) => api.post('/trips', data);
 export const getTrips = (userId: string) => api.get(`/trips?userId=${userId}`);
 export const updateTrip = (id: string, data: object) => api.put(`/trips/${id}`, data);
 export const deleteTrip = (id: string) => api.delete(`/trips/${id}`);
+export const calculateTripCarbon = (tripId: string, distance: number, mode: string) =>
+  api.post(`/trips/${tripId}/carbon`, { distance, mode });
+export const getTripCarbon = (tripId: string) => api.get(`/trips/${tripId}/carbon`);
 
 // Expenses
 export const addExpense = (data: object) => api.post('/expenses', data);
