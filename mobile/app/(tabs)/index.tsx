@@ -156,15 +156,19 @@ export default function MapScreen() {
       const data = await fetchStations(result.latitude, result.longitude);
       setSTATIONS(data);
 
-      if (userLocation) {
-        const route = await getRoute(userLocation, { latitude: result.latitude, longitude: result.longitude });
-        setRouteCoords(route.coordinates);
-        setRouteInfo({ distanceKm: route.distanceKm, durationMin: route.durationMin });
-        setRouteActive(true);
-        mapRef.current?.fitToCoordinates(route.coordinates, {
-          edgePadding: { top: 120, right: 40, bottom: FULL + 20, left: 40 },
-          animated: true,
-        });
+      if (userLocation && result.latitude && result.longitude) {
+        try {
+          const route = await getRoute(userLocation, { latitude: result.latitude, longitude: result.longitude });
+          setRouteCoords(route.coordinates);
+          setRouteInfo({ distanceKm: route.distanceKm, durationMin: route.durationMin });
+          setRouteActive(true);
+          mapRef.current?.fitToCoordinates(route.coordinates, {
+            edgePadding: { top: 120, right: 40, bottom: FULL + 20, left: 40 },
+            animated: true,
+          });
+        } catch (routeErr) {
+          console.log('Route failed, showing destination only:', routeErr);
+        }
       }
     } catch (err) {
       console.log('Search failed:', err);

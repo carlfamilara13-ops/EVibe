@@ -196,8 +196,8 @@ export default function StationsScreen() {
 
                   {station.connectors.length > 1 && (
                     <View style={styles.connectorRow}>
-                      {station.connectors.map(c => (
-                        <View key={c} style={styles.connectorChip}>
+                      {station.connectors.map((c: string, idx: number) => (
+                        <View key={`${c}-${idx}`} style={styles.connectorChip}>
                           <Text style={styles.connectorChipText}>{c}</Text>
                         </View>
                       ))}
