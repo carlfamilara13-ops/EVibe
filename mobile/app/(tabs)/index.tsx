@@ -187,7 +187,6 @@ export default function MapScreen() {
           latitudeDelta: 0.05,
           longitudeDelta: 0.05,
         }}
-        customMapStyle={darkMapStyle}
         showsUserLocation
         showsMyLocationButton={false}
         showsCompass={false}>
