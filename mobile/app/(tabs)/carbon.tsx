@@ -9,16 +9,31 @@ import { EV } from '@/constants/theme';
 import { useCarbonData } from '@/hooks/useCarbonData';
 import { useRouter } from 'expo-router';
 import { useFocusEffect } from '@react-navigation/native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const { width } = Dimensions.get('window');
 
 export default function CarbonScreen() {
   const { loading, error, carbonData, refetch } = useCarbonData();
   const router = useRouter();
+  const [tripInfo, setTripInfo] = React.useState<any>(null);
 
-  // Reload data when screen comes into focus
+  // Load trip info from AsyncStorage
+  React.useEffect(() => {
+    loadTripInfo();
+  }, []);
+
+  const loadTripInfo = async () => {
+    const tripStr = await AsyncStorage.getItem('activeTrip');
+    if (tripStr) {
+      setTripInfo(JSON.parse(tripStr));
+    }
+  };
+
+  // Reload data when screen comes into focus (check for new trip)
   useFocusEffect(
     React.useCallback(() => {
+      loadTripInfo();
       refetch();
     }, [])
   );
@@ -132,6 +147,16 @@ export default function CarbonScreen() {
             </View>
           </View>
 
+          {/* Active trip badge */}
+          {tripInfo && (
+            <View style={styles.activeTripBadge}>
+              <Ionicons name="navigate" size={14} color={EV.primary} />
+              <Text style={styles.activeTripText}>
+                {tripInfo.origin} → {tripInfo.destination}
+              </Text>
+            </View>
+          )}
+
           {/* Reduction badge */}
           <View style={styles.reductionBadge}>
             <Ionicons name="trending-down" size={16} color={EV.primary} />
@@ -172,9 +197,9 @@ export default function CarbonScreen() {
           <View style={styles.compareNumbers}>
             <View style={styles.compareBox}>
               <View style={[styles.compareIconBox, { backgroundColor: EV.primary + '20' }]}>
-                <Ionicons name={carbonData.mode === 'ev' ? 'flash' : carbonData.mode === 'biking' ? 'bicycle' : carbonData.mode === 'walking' ? 'walk' : 'bus'} size={22} color={EV.primary} />
+                <Ionicons name={tripInfo?.mode === 'ev' ? 'flash' : tripInfo?.mode === 'biking' ? 'bicycle' : tripInfo?.mode === 'walking' ? 'walk' : 'bus'} size={22} color={EV.primary} />
               </View>
-              <Text style={styles.compareBoxLabel}>{carbonData.mode === 'ev' ? 'Electric' : carbonData.mode}</Text>
+              <Text style={styles.compareBoxLabel}>{tripInfo?.mode === 'ev' ? 'Electric' : tripInfo?.mode || 'EV'}</Text>
               <Text style={[styles.compareBoxVal, { color: EV.primary }]}>{evCO2.toFixed(1)}</Text>
               <Text style={styles.compareBoxUnit}>kg CO₂</Text>
             </View>
@@ -235,7 +260,7 @@ export default function CarbonScreen() {
           <View style={styles.impactBody}>
             <Text style={styles.impactTitle}>You're making a difference 🌍</Text>
             <Text style={styles.impactText}>
-              By choosing {carbonData.mode === 'ev' ? 'electric' : carbonData.mode}, you emitted {reductionPct.toFixed(0)}% less CO₂ than a gasoline car — equivalent to planting {treesSaved.toFixed(1)} trees.
+              By choosing {tripInfo?.mode === 'ev' ? 'electric' : tripInfo?.mode || 'this mode'}, you emitted {reductionPct.toFixed(0)}% less CO₂ than a gasoline car — equivalent to planting {treesSaved.toFixed(1)} trees.
             </Text>
           </View>
         </View>
@@ -349,6 +374,20 @@ const styles = StyleSheet.create({
     borderColor: EV.primaryDark,
   },
   reductionText: { fontSize: 13, color: EV.primary, fontWeight: '700' },
+
+  activeTripBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: EV.primary + '18',
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: EV.primary + '40',
+    marginBottom: 16,
+  },
+  activeTripText: { fontSize: 13, color: EV.primary, fontWeight: '700' },
 
   sectionTitle: {
     fontSize: 11,

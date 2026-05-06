@@ -96,6 +96,8 @@ exports.getTripCarbon = async (req, res) => {
 
     res.json({
       hasData: true,
+      origin: trip.origin,
+      destination: trip.destination,
       distanceKm: trip.distance,
       mode: trip.mode,
       ...trip.carbonData,

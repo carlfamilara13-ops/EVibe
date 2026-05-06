@@ -92,7 +92,33 @@ export default function BudgetScreen() {
       const day = String(date.getDate()).padStart(2, '0');
       const dateStr = `${year}-${month}-${day}`;
       const res = await getDailySummary(userId, dateStr);
-      setDailyData(res.data);
+      
+      // Calculate cumulative income up to selected day
+      let cumulativeIncome = 0;
+      let cumulativeExpenses = 0;
+      const selectedDay = date.getDate();
+      const selectedMonth = date.getMonth();
+      const selectedYear = date.getFullYear();
+      
+      for (let d = 1; d <= selectedDay; d++) {
+        const dStr = `${selectedYear}-${String(selectedMonth + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+        const dData = monthlyData?.dailyMap?.[dStr];
+        if (dData) {
+          if (dData.income > 0) cumulativeIncome += dData.income;
+          if (dData.expenses > 0) cumulativeExpenses += dData.expenses;
+        }
+      }
+      
+      // Update daily data with cumulative values
+      const updatedData = {
+        ...res.data,
+        totalIncome: cumulativeIncome,
+        totalExpenses: res.data.totalExpenses || 0, // Only today's expenses, 0 if none
+        cumulativeExpenses: cumulativeExpenses, // Total expenses up to this day
+        balance: cumulativeIncome - cumulativeExpenses,
+      };
+      
+      setDailyData(updatedData);
     } catch (err) {
       console.log('Daily load error:', err);
     }
@@ -238,7 +264,34 @@ export default function BudgetScreen() {
 
     const getDayData = (day: number) => {
       const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-      return monthlyData?.dailyMap?.[dateStr] || { income: 0, expenses: 0 };
+      const dayData = monthlyData?.dailyMap?.[dateStr] || { income: 0, expenses: 0 };
+      
+      // Calculate cumulative income up to this day
+      let cumulativeIncome = 0;
+      for (let d = 1; d <= day; d++) {
+        const dStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+        const dData = monthlyData?.dailyMap?.[dStr];
+        if (dData && dData.income > 0) {
+          cumulativeIncome += dData.income;
+        }
+      }
+      
+      // Calculate cumulative expenses up to this day
+      let cumulativeExpenses = 0;
+      for (let d = 1; d <= day; d++) {
+        const dStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+        const dData = monthlyData?.dailyMap?.[dStr];
+        if (dData && dData.expenses > 0) {
+          cumulativeExpenses += dData.expenses;
+        }
+      }
+      
+      return { 
+        income: cumulativeIncome, 
+        expenses: dayData.expenses, // Only show expenses on the day they occurred
+        cumulativeExpenses: cumulativeExpenses,
+        balance: cumulativeIncome - cumulativeExpenses
+      };
     };
 
     const isToday = (day: number) => {
@@ -336,9 +389,9 @@ export default function BudgetScreen() {
                       {hasExpense && <View style={[styles.calendarDot, { backgroundColor: EV.danger }]} />}
                     </View>
                   )}
-                  {(hasIncome || hasExpense) && (
-                    <Text style={styles.calendarDayAmount}>
-                      ₱{(data.income - data.expenses).toFixed(0)}
+                  {hasActivity && (
+                    <Text style={[styles.calendarDayAmount, { color: data.balance >= 0 ? EV.primary : EV.danger }]}>
+                      ₱{data.balance.toFixed(0)}
                     </Text>
                   )}
                 </TouchableOpacity>
@@ -366,12 +419,12 @@ export default function BudgetScreen() {
             <View style={styles.dailyStats}>
               <View style={[styles.dailyStatCard, { borderColor: EV.primary + '40' }]}>
                 <Ionicons name="arrow-down-circle" size={24} color={EV.primary} />
-                <Text style={styles.dailyStatLabel}>Income</Text>
+                <Text style={styles.dailyStatLabel}>Total Income</Text>
                 <Text style={[styles.dailyStatValue, { color: EV.primary }]}>₱{dailyData.totalIncome.toFixed(2)}</Text>
               </View>
               <View style={[styles.dailyStatCard, { borderColor: EV.danger + '40' }]}>
                 <Ionicons name="arrow-up-circle" size={24} color={EV.danger} />
-                <Text style={styles.dailyStatLabel}>Expenses</Text>
+                <Text style={styles.dailyStatLabel}>Today's Expenses</Text>
                 <Text style={[styles.dailyStatValue, { color: EV.danger }]}>₱{dailyData.totalExpenses.toFixed(2)}</Text>
               </View>
               <View style={[styles.dailyStatCard, { borderColor: dailyData.balance >= 0 ? EV.primary + '40' : EV.danger + '40' }]}>
@@ -385,7 +438,7 @@ export default function BudgetScreen() {
 
             {(dailyData.incomes.length > 0 || dailyData.expenses.length > 0) && (
               <>
-                <Text style={[styles.sectionTitle, { marginTop: 20, marginBottom: 12 }]}>TRANSACTIONS</Text>
+                <Text style={[styles.sectionTitle, { marginTop: 20, marginBottom: 12 }]}>TRANSACTIONS ON THIS DAY</Text>
                 {dailyData.incomes.map((inc: any) => {
                   const cat = INCOME_CATEGORIES.find((c) => c.key === inc.category) || INCOME_CATEGORIES[3];
                   return (
