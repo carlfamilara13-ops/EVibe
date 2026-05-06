@@ -54,6 +54,39 @@ const SIMULATED_TRIPS = [
     carbonKg: 0.5,
     steps: [{ label: 'EV ride', icon: 'flash-outline', type: 'ev', cost: 25 }],
   },
+  {
+    _id: 'sim-4',
+    origin: 'Downtown',
+    destination: 'Airport',
+    distanceKm: 12.3,
+    mode: 'bus',
+    date: new Date(Date.now() - 12 * 60 * 60 * 1000).toISOString(),
+    durationMin: 45,
+    carbonKg: 1.2,
+    steps: [{ label: 'Express Bus', icon: 'bus-outline', type: 'bus', cost: 35 }],
+  },
+  {
+    _id: 'sim-5',
+    origin: 'Park Ave',
+    destination: 'Shopping Mall',
+    distanceKm: 3.7,
+    mode: 'biking',
+    date: new Date(Date.now() - 18 * 60 * 60 * 1000).toISOString(),
+    durationMin: 16,
+    carbonKg: 0.0,
+    steps: [{ label: 'Bike', icon: 'bicycle-outline', type: 'bike', cost: 0 }],
+  },
+  {
+    _id: 'sim-6',
+    origin: 'Library',
+    destination: 'Gym',
+    distanceKm: 1.9,
+    mode: 'walking',
+    date: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
+    durationMin: 12,
+    carbonKg: 0.0,
+    steps: [{ label: 'Walk', icon: 'walk-outline', type: 'walk', cost: 0 }],
+  },
 ];
 
 const GREETING = () => {
@@ -295,9 +328,17 @@ export default function HomeScreen() {
 
         {/* Recent activity */}
         <View style={styles.sectionRow}>
-          <View>
+          {hasMoreActivity && (
+            <TouchableOpacity onPress={() => {
+              LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+              setShowAllTrips(!showAllTrips);
+            }}>
+              <Text style={styles.viewMore}>{showAllTrips ? '← Less' : '← More'}</Text>
+            </TouchableOpacity>
+          )}
+          <View style={{ flex: 1, alignItems: 'center' }}>
             <Text style={[styles.sectionTitle, { marginBottom: 0 }]}>RECENT ACTIVITY</Text>
-            <Text style={styles.sectionSubtitle}>More activity on the right shows extra trips</Text>
+            <Text style={styles.sectionSubtitle}>More activity on both sides shows extra trips</Text>
           </View>
           {hasMoreActivity && (
             <TouchableOpacity onPress={() => {
