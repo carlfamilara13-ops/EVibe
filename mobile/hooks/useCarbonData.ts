@@ -4,6 +4,11 @@ import axios from 'axios';
 
 const BASE_URL = process.env.EXPO_PUBLIC_API_URL!;
 
+let cachedData: any = null;
+let cacheTime = 0;
+let cachedTripId: string | null = null;
+const CACHE_DURATION = 10000; // 10 seconds
+
 export const useCarbonData = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -14,12 +19,10 @@ export const useCarbonData = () => {
   }, []);
 
   const loadCarbonData = async () => {
-    setLoading(true);
-    setError(null);
+    const now = Date.now();
     
     try {
       const tripStr = await AsyncStorage.getItem('activeTrip');
-      console.log('Active trip from storage:', tripStr);
       
       if (!tripStr) {
         setError('No active trip found. Please start a trip from the setup screen.');
@@ -28,19 +31,29 @@ export const useCarbonData = () => {
       }
 
       const trip = JSON.parse(tripStr);
-      console.log('Trip ID:', trip._id);
+      const currentTripId = trip._id;
+      
+      // Use cache only if same trip and not expired
+      if (cachedData && cachedTripId === currentTripId && now - cacheTime < CACHE_DURATION) {
+        setCarbonData(cachedData);
+        setLoading(false);
+        return;
+      }
+
+      setLoading(true);
+      setError(null);
       
       const token = await AsyncStorage.getItem('token');
-      const url = `${BASE_URL}/trips/${trip._id}/carbon`;
-      console.log('Fetching carbon data from:', url);
+      const url = `${BASE_URL}/trips/${currentTripId}/carbon`;
 
       const response = await axios.get(url, {
         headers: token ? { Authorization: `Bearer ${token}` } : {},
       });
 
-      console.log('Carbon data response:', response.data);
-
       if (response.data.hasData) {
+        cachedData = response.data;
+        cacheTime = now;
+        cachedTripId = currentTripId;
         setCarbonData(response.data);
       } else {
         setError('No carbon data available. Please recalculate your trip route.');

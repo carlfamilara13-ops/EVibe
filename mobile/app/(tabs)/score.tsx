@@ -1,24 +1,62 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View, Text, StyleSheet, ScrollView,
-  StatusBar, Dimensions, TouchableOpacity, Alert,
+  StatusBar, Dimensions, TouchableOpacity, Alert, ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { NATURE as EV } from '@/constants/theme';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { useRouter } from 'expo-router';
+import { useRouter, useFocusEffect } from 'expo-router';
+import { getUserExpenses, getIncomes, getTrips, deleteTrip } from '@/services/api';
 
 const { width } = Dimensions.get('window');
 
-const CURRENT = { score: 78, budget: 85, carbon: 72, efficiency: 76 };
+function calculateEcoScore(carbonData: any, budgetData: any, tripData: any) {
+  let carbonScore = 0;
+  let budgetScore = 0;
+  let efficiencyScore = 0;
 
-const HISTORY = [
-  { id: '1', route: 'City → Beach', date: 'Jun 12', score: 82, stars: 4, distance: '98 km' },
-  { id: '2', route: 'Home → Airport', date: 'Jun 8', score: 65, stars: 3, distance: '34 km' },
-  { id: '3', route: 'Downtown → Mall', date: 'Jun 3', score: 91, stars: 5, distance: '12 km' },
-  { id: '4', route: 'Office → Park', date: 'May 28', score: 55, stars: 3, distance: '22 km' },
-];
+  // Carbon Score (0-100) - based on CO2 saved percentage
+  if (carbonData && carbonData.savedPercentage) {
+    carbonScore = Math.min(100, carbonData.savedPercentage);
+  }
+
+  // Budget Score (0-100) - based on staying within budget
+  if (budgetData) {
+    const { totalIncome, totalExpenses } = budgetData;
+    if (totalIncome > 0) {
+      const budgetUsage = (totalExpenses / totalIncome) * 100;
+      if (budgetUsage <= 70) budgetScore = 100;
+      else if (budgetUsage <= 85) budgetScore = 85;
+      else if (budgetUsage <= 100) budgetScore = 70;
+      else budgetScore = Math.max(0, 50 - (budgetUsage - 100));
+    }
+  }
+
+  // Efficiency Score (0-100) - based on mode and distance
+  if (tripData && tripData.mode) {
+    const modeScores: any = {
+      walking: 100,
+      biking: 100,
+      ev: 85,
+      commute: 70,
+    };
+    efficiencyScore = modeScores[tripData.mode] || 50;
+  }
+
+  // Overall Score - weighted average
+  const overallScore = Math.round(
+    (carbonScore * 0.4) + (budgetScore * 0.3) + (efficiencyScore * 0.3)
+  );
+
+  return {
+    overall: overallScore,
+    carbon: Math.round(carbonScore),
+    budget: Math.round(budgetScore),
+    efficiency: Math.round(efficiencyScore),
+  };
+}
 
 function getStars(score: number) {
   if (score >= 90) return 5;
@@ -44,10 +82,96 @@ function getMessage(score: number) {
 
 export default function ScoreScreen() {
   const router = useRouter();
-  const { score, budget, carbon, efficiency } = CURRENT;
+  const [loading, setLoading] = useState(true);
+  const [scores, setScores] = useState({ overall: 0, carbon: 0, budget: 0, efficiency: 0 });
+  const [tripHistory, setTripHistory] = useState<any[]>([]);
+  const [carbonData, setCarbonData] = useState<any>(null);
+  const [lastLoadTime, setLastLoadTime] = useState(0);
+
+  useEffect(() => {
+    loadData();
+  }, []);
+
+  useFocusEffect(
+    React.useCallback(() => {
+      const now = Date.now();
+      if (now - lastLoadTime > 10000) { // Only reload if >10 seconds old
+        loadData();
+      }
+    }, [lastLoadTime])
+  );
+
+  const loadData = async () => {
+    setLoading(true);
+    try {
+      const [userStr, tripStr] = await Promise.all([
+        AsyncStorage.getItem('user'),
+        AsyncStorage.getItem('activeTrip'),
+      ]);
+      
+      const user = userStr ? JSON.parse(userStr) : {};
+      if (!user.id) {
+        setLoading(false);
+        return;
+      }
+
+      let activeTripCarbon = null;
+      if (tripStr) {
+        const trip = JSON.parse(tripStr);
+        activeTripCarbon = trip.carbonData;
+        setCarbonData(trip);
+      }
+
+      const [incRes, expRes, tripsRes] = await Promise.all([
+        getIncomes(user.id),
+        getUserExpenses(user.id),
+        getTrips(user.id),
+      ]);
+      
+      const totalIncome = incRes.data.reduce((s: number, i: any) => s + i.amount, 0);
+      const totalExpenses = expRes.data.reduce((s: number, e: any) => s + e.amount, 0);
+      setTripHistory(tripsRes.data.slice(0, 5));
+
+      const calculatedScores = calculateEcoScore(
+        activeTripCarbon,
+        { totalIncome, totalExpenses },
+        tripStr ? JSON.parse(tripStr) : null
+      );
+      setScores(calculatedScores);
+      setLastLoadTime(Date.now());
+    } catch (err) {
+      console.log('Score load error:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const { overall: score, budget, carbon, efficiency } = scores;
   const color = getScoreColor(score);
   const stars = getStars(score);
   const msg = getMessage(score);
+
+  const handleDeleteTrip = (tripId: string, tripName: string) => {
+    Alert.alert(
+      'Delete Trip',
+      `Remove "${tripName}" from history?`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await deleteTrip(tripId);
+              loadData();
+            } catch (err) {
+              Alert.alert('Error', 'Failed to delete trip');
+            }
+          },
+        },
+      ]
+    );
+  };
 
   const handleLogout = async () => {
     Alert.alert('Logout', 'Are you sure you want to logout?', [
@@ -88,6 +212,14 @@ export default function ScoreScreen() {
 
       <ScrollView style={styles.scroll} showsVerticalScrollIndicator={false}>
 
+        {loading ? (
+          <View style={styles.loadingContainer}>
+            <ActivityIndicator size="large" color={EV.primary} />
+            <Text style={styles.loadingText}>Calculating your eco score...</Text>
+          </View>
+        ) : (
+          <>
+
         {/* Score hero */}
         <View style={styles.heroCard}>
           <View style={[styles.heroGlow, { backgroundColor: color + '12' }]} />
@@ -119,6 +251,15 @@ export default function ScoreScreen() {
 
           <Text style={styles.msgTitle}>{msg.title}</Text>
           <Text style={styles.msgSub}>{msg.sub}</Text>
+
+          {carbonData && (
+            <View style={styles.currentTripBadge}>
+              <Ionicons name="navigate" size={14} color={EV.primary} />
+              <Text style={styles.currentTripText}>
+                {carbonData.origin} → {carbonData.destination}
+              </Text>
+            </View>
+          )}
         </View>
 
         {/* Score breakdown */}
@@ -167,31 +308,52 @@ export default function ScoreScreen() {
 
         {/* Trip history */}
         <Text style={styles.sectionTitle}>TRIP HISTORY</Text>
-        {HISTORY.map(trip => {
-          const c = getScoreColor(trip.score);
-          const s = getStars(trip.score);
-          return (
-            <View key={trip.id} style={styles.historyCard}>
-              <View style={[styles.historyScore, { borderColor: c + '60', backgroundColor: c + '12' }]}>
-                <Text style={[styles.historyScoreNum, { color: c }]}>{trip.score}</Text>
-              </View>
-              <View style={styles.historyInfo}>
-                <Text style={styles.historyRoute}>{trip.route}</Text>
-                <View style={styles.historyMeta}>
-                  <Text style={styles.historyDate}>{trip.date}</Text>
-                  <Text style={styles.historyDot}>·</Text>
-                  <Text style={styles.historyDist}>{trip.distance}</Text>
+        {tripHistory.length === 0 ? (
+          <View style={styles.emptyHistory}>
+            <Ionicons name="car-outline" size={48} color={EV.textDim} />
+            <Text style={styles.emptyText}>No trip history yet</Text>
+            <TouchableOpacity style={styles.planTripBtn} onPress={() => router.push('/setup')}>
+              <Ionicons name="add-circle" size={20} color={EV.bg} />
+              <Text style={styles.planTripText}>Plan Your First Trip</Text>
+            </TouchableOpacity>
+          </View>
+        ) : (
+          tripHistory.map(trip => {
+            const tripScore = trip.carbonData?.savedPercentage || 50;
+            const c = getScoreColor(tripScore);
+            const s = getStars(tripScore);
+            const tripName = `${trip.origin} → ${trip.destination}`;
+            return (
+              <View key={trip._id} style={styles.historyCard}>
+                <View style={[styles.historyScore, { borderColor: c + '60', backgroundColor: c + '12' }]}>
+                  <Text style={[styles.historyScoreNum, { color: c }]}>{Math.round(tripScore)}</Text>
                 </View>
-                <View style={styles.historyStars}>
-                  {[1, 2, 3, 4, 5].map(i => (
-                    <Ionicons key={i} name={i <= s ? 'star' : 'star-outline'} size={11} color={i <= s ? EV.warning : EV.textDim} />
-                  ))}
+                <View style={styles.historyInfo}>
+                  <Text style={styles.historyRoute}>{tripName}</Text>
+                  <View style={styles.historyMeta}>
+                    <Text style={styles.historyDate}>{new Date(trip.createdAt).toLocaleDateString('en', { month: 'short', day: 'numeric' })}</Text>
+                    <Text style={styles.historyDot}>·</Text>
+                    <Text style={styles.historyDist}>{trip.distance.toFixed(1)} km</Text>
+                  </View>
+                  <View style={styles.historyStars}>
+                    {[1, 2, 3, 4, 5].map(i => (
+                      <Ionicons key={i} name={i <= s ? 'star' : 'star-outline'} size={11} color={i <= s ? EV.warning : EV.textDim} />
+                    ))}
+                  </View>
                 </View>
+                <TouchableOpacity
+                  onPress={() => handleDeleteTrip(trip._id, tripName)}
+                  style={styles.deleteBtn}
+                >
+                  <Ionicons name="trash-outline" size={18} color={EV.danger} />
+                </TouchableOpacity>
               </View>
-              <Ionicons name="chevron-forward" size={16} color={EV.textDim} />
-            </View>
-          );
-        })}
+            );
+          })
+        )}
+
+        </>
+        )}
 
         <View style={{ height: 24 }} />
       </ScrollView>
@@ -224,6 +386,14 @@ const styles = StyleSheet.create({
   },
   starBadgeText: { fontSize: 13, fontWeight: '800', color: EV.bg },
   logoutBtn: { width: 36, height: 36, borderRadius: 10, backgroundColor: EV.danger + '20', alignItems: 'center', justifyContent: 'center' },
+
+  loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', paddingVertical: 60, gap: 16 },
+  loadingText: { fontSize: 14, color: EV.textMuted, fontWeight: '600' },
+
+  emptyHistory: { alignItems: 'center', paddingVertical: 40, paddingHorizontal: 20, gap: 12, marginHorizontal: 16, backgroundColor: EV.bgCard, borderRadius: 20, borderWidth: 1, borderColor: EV.border },
+  emptyText: { fontSize: 14, color: EV.textMuted, fontWeight: '600' },
+  planTripBtn: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: EV.primary, paddingHorizontal: 20, paddingVertical: 12, borderRadius: 12, marginTop: 8 },
+  planTripText: { color: EV.bg, fontWeight: '700', fontSize: 14 },
 
   heroCard: {
     margin: 16,
@@ -271,7 +441,19 @@ const styles = StyleSheet.create({
 
   starsRow: { flexDirection: 'row', gap: 6, marginBottom: 14 },
   msgTitle: { fontSize: 22, fontWeight: '800', color: EV.text, marginBottom: 4 },
-  msgSub: { fontSize: 14, color: EV.textMuted },
+  msgSub: { fontSize: 14, color: EV.textMuted, marginBottom: 16 },
+  currentTripBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: EV.primary + '18',
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: EV.primary + '40',
+  },
+  currentTripText: { fontSize: 13, color: EV.primary, fontWeight: '700' },
 
   sectionTitle: {
     fontSize: 11,
@@ -351,4 +533,5 @@ const styles = StyleSheet.create({
   historyDot: { fontSize: 12, color: EV.textDim },
   historyDist: { fontSize: 12, color: EV.textMuted },
   historyStars: { flexDirection: 'row', gap: 2, marginTop: 2 },
+  deleteBtn: { width: 36, height: 36, borderRadius: 10, backgroundColor: EV.danger + '18', alignItems: 'center', justifyContent: 'center' },
 });

@@ -39,10 +39,8 @@ export default function AddExpenseScreen() {
   };
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.content}>
-      <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
-        <Text style={styles.backText}>← Back</Text>
-      </TouchableOpacity>
+    <SafeAreaView style={styles.safe}>
+      <StatusBar barStyle="light-content" backgroundColor={EV.bg} />
 
       <Text style={styles.title}>Add Expense</Text>
       <Text style={styles.subtitle}>Track your spending</Text>

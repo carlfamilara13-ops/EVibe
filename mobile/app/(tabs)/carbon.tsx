@@ -32,8 +32,53 @@ export default function CarbonScreen() {
   const [tab, setTab] = useState<'carbon' | 'score'>('carbon');
   const { loading, error, carbonData, refetch } = useCarbonData();
   const router = useRouter();
+  const [tripInfo, setTripInfo] = React.useState<any>(null);
 
+<<<<<<< wip/fork-push
   useFocusEffect(useCallback(() => { refetch(); }, []));
+=======
+  // Load trip info from AsyncStorage
+  React.useEffect(() => {
+    loadTripInfo();
+  }, []);
+
+  const loadTripInfo = async () => {
+    const tripStr = await AsyncStorage.getItem('activeTrip');
+    if (tripStr) {
+      setTripInfo(JSON.parse(tripStr));
+    }
+  };
+
+  // Reload data when screen comes into focus (check for new trip)
+  useFocusEffect(
+    React.useCallback(() => {
+      loadTripInfo();
+      refetch();
+    }, [])
+  );
+
+  // Loading skeleton
+  if (loading) {
+    return (
+      <SafeAreaView style={styles.safe}>
+        <StatusBar barStyle="light-content" backgroundColor={EV.bg} />
+        <View style={styles.header}>
+          <View>
+            <Text style={styles.headerTitle}>Carbon Footprint</Text>
+            <Text style={styles.headerSub}>Your environmental impact</Text>
+          </View>
+          <View style={styles.leafBadge}>
+            <Ionicons name="leaf" size={16} color={EV.bg} />
+          </View>
+        </View>
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color={EV.primary} />
+          <Text style={styles.loadingText}>Loading carbon data...</Text>
+        </View>
+      </SafeAreaView>
+    );
+  }
+>>>>>>> master
 
   const handleLogout = () => {
     Alert.alert('Logout', 'Are you sure?', [
@@ -85,6 +130,7 @@ export default function CarbonScreen() {
             <ActivityIndicator size="large" color={EV.primary} />
             <Text style={styles.loadingText}>Loading carbon data...</Text>
           </View>
+<<<<<<< wip/fork-push
         ) : !carbonData ? (
           <View style={styles.center}>
             <Ionicons name="leaf-outline" size={64} color={EV.textDim} />
@@ -94,6 +140,23 @@ export default function CarbonScreen() {
               <Ionicons name="map-outline" size={18} color={EV.white} />
               <Text style={styles.planBtnText}>Plan a Commute</Text>
             </TouchableOpacity>
+=======
+
+          {/* Active trip badge */}
+          {tripInfo && (
+            <View style={styles.activeTripBadge}>
+              <Ionicons name="navigate" size={14} color={EV.primary} />
+              <Text style={styles.activeTripText}>
+                {tripInfo.origin} → {tripInfo.destination}
+              </Text>
+            </View>
+          )}
+
+          {/* Reduction badge */}
+          <View style={styles.reductionBadge}>
+            <Ionicons name="trending-down" size={16} color={EV.primary} />
+            <Text style={styles.reductionText}>{reductionPct.toFixed(0)}% less emissions than a gas car</Text>
+>>>>>>> master
           </View>
         ) : (
           <ScrollView showsVerticalScrollIndicator={false}>
@@ -121,6 +184,7 @@ export default function CarbonScreen() {
               </View>
             </View>
 
+<<<<<<< wip/fork-push
             {/* Comparison */}
             <Text style={styles.sectionTitle}>EMISSIONS COMPARISON</Text>
             <View style={styles.compareCard}>
@@ -139,6 +203,17 @@ export default function CarbonScreen() {
                   </View>
                 </View>
               ))}
+=======
+          {/* Side by side numbers */}
+          <View style={styles.compareNumbers}>
+            <View style={styles.compareBox}>
+              <View style={[styles.compareIconBox, { backgroundColor: EV.primary + '20' }]}>
+                <Ionicons name={tripInfo?.mode === 'ev' ? 'flash' : tripInfo?.mode === 'biking' ? 'bicycle' : tripInfo?.mode === 'walking' ? 'walk' : 'bus'} size={22} color={EV.primary} />
+              </View>
+              <Text style={styles.compareBoxLabel}>{tripInfo?.mode === 'ev' ? 'Electric' : tripInfo?.mode || 'EV'}</Text>
+              <Text style={[styles.compareBoxVal, { color: EV.primary }]}>{evCO2.toFixed(1)}</Text>
+              <Text style={styles.compareBoxUnit}>kg CO₂</Text>
+>>>>>>> master
             </View>
 
             {/* Stats */}
@@ -225,6 +300,7 @@ export default function CarbonScreen() {
               </View>
             ))}
           </View>
+<<<<<<< wip/fork-push
 
           {/* Tips */}
           <Text style={styles.sectionTitle}>TIPS TO IMPROVE</Text>
@@ -244,6 +320,13 @@ export default function CarbonScreen() {
                 </View>
               </View>
             ))}
+=======
+          <View style={styles.impactBody}>
+            <Text style={styles.impactTitle}>You're making a difference 🌍</Text>
+            <Text style={styles.impactText}>
+              By choosing {tripInfo?.mode === 'ev' ? 'electric' : tripInfo?.mode || 'this mode'}, you emitted {reductionPct.toFixed(0)}% less CO₂ than a gasoline car — equivalent to planting {treesSaved.toFixed(1)} trees.
+            </Text>
+>>>>>>> master
           </View>
 
           {/* History */}
@@ -316,7 +399,44 @@ const styles = StyleSheet.create({
   reductionBadge: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: EV.primary + '18', paddingHorizontal: 16, paddingVertical: 10, borderRadius: 20, borderWidth: 1, borderColor: EV.border },
   reductionText: { fontSize: 13, color: EV.primary, fontWeight: '700' },
 
+<<<<<<< wip/fork-push
   compareCard: { marginHorizontal: 16, marginBottom: 20, backgroundColor: EV.bgCard, borderRadius: 20, padding: 18, borderWidth: 1, borderColor: EV.border, gap: 16 },
+=======
+  activeTripBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: EV.primary + '18',
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: EV.primary + '40',
+    marginBottom: 16,
+  },
+  activeTripText: { fontSize: 13, color: EV.primary, fontWeight: '700' },
+
+  sectionTitle: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: EV.primary,
+    letterSpacing: 1.5,
+    marginHorizontal: 16,
+    marginBottom: 12,
+  },
+
+  compareCard: {
+    marginHorizontal: 16,
+    marginBottom: 20,
+    backgroundColor: EV.bgCard,
+    borderRadius: 20,
+    padding: 18,
+    borderWidth: 1,
+    borderColor: EV.border,
+    gap: 20,
+  },
+  barsSection: { gap: 14 },
+>>>>>>> master
   barItem: { gap: 8 },
   barLabelRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   barDot: { width: 8, height: 8, borderRadius: 4 },
