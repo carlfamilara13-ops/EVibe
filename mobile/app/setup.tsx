@@ -5,7 +5,7 @@ import {
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { EV } from '@/constants/theme';
+import { NATURE as EV } from '@/constants/theme';
 import * as Location from 'expo-location';
 import { getRoute, geocode, autoComplete } from '@/services/ors';
 import { createTrip, calculateTripCarbon } from '@/services/api';
@@ -93,12 +93,9 @@ export default function SetupScreen() {
     try {
       const from = originCoords ?? await geocode(origin);
       const to = destCoords ?? await geocode(destination);
-      console.log('From:', from, 'To:', to, 'Profile:', selectedMode.profile);
       const result = await getRoute(from, to, selectedMode.profile);
-      console.log('Route result:', result);
       setRouteInfo({ distanceKm: result.distanceKm, durationMin: result.durationMin });
     } catch (err: any) {
-      console.log('Route error:', err?.response?.data || err?.message);
       Alert.alert('Error', 'Could not calculate route. Try different locations.');
     } finally {
       setLoading(false);
@@ -135,7 +132,6 @@ export default function SetupScreen() {
 
       router.push('/(tabs)');
     } catch (err: any) {
-      console.log('Start trip error:', err?.response?.data || err?.message);
       Alert.alert('Error', 'Failed to start trip');
     } finally {
       setLoading(false);

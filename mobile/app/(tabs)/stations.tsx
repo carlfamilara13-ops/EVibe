@@ -5,7 +5,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { EV } from '@/constants/theme';
+import { NATURE as EV } from '@/constants/theme';
 import * as Location from 'expo-location';
 import { fetchStations } from '@/services/ocm';
 

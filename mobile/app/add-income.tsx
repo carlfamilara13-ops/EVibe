@@ -3,7 +3,7 @@ import { View, Text, TextInput, TouchableOpacity, StyleSheet, ScrollView, Alert,
 import { useRouter } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { addIncome } from '@/services/api';
-import { EV } from '@/constants/theme';
+import { NATURE as EV } from '@/constants/theme';
 
 const CATEGORIES = [
   { label: '💼 Salary', value: 'salary' },
@@ -25,16 +25,12 @@ export default function AddIncomeScreen() {
     try {
       const userStr = await AsyncStorage.getItem('user');
       const user = userStr ? JSON.parse(userStr) : {};
-      console.log('User:', user);
       if (!user.id) return Alert.alert('Error', 'Please login first');
       const payload = { userId: user.id, amount: parseFloat(amount), description, category, date: new Date() };
-      console.log('Saving income:', payload);
       const res = await addIncome(payload);
-      console.log('Income saved:', res.data);
       Alert.alert('Success', 'Income added!');
       router.back();
     } catch (err: any) {
-      console.log('Save error:', err?.response?.data || err?.message || err);
       Alert.alert('Error', err?.response?.data?.error || 'Failed to save income');
     } finally {
       setLoading(false);

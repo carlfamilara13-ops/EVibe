@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, ScrollView, StatusBar, Dimensions, Alert, ActivityIndicator, RefreshControl } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { EV } from '@/constants/theme';
+import { NATURE as EV } from '@/constants/theme';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { getUserExpenses, getIncomes, getMonthlySummary, getYearlySummary, getDailySummary, deleteExpense as apiDeleteExpense, deleteIncome as apiDeleteIncome } from '@/services/api';
 import { useRouter, useFocusEffect } from 'expo-router';
@@ -53,9 +53,7 @@ export default function BudgetScreen() {
     try {
       const userStr = await AsyncStorage.getItem('user');
       const user = userStr ? JSON.parse(userStr) : {};
-      console.log('User from storage:', user);
       if (!user.id) {
-        console.log('No user ID found');
         setNoUser(true);
         setLoading(false);
         return;
@@ -70,7 +68,6 @@ export default function BudgetScreen() {
         getYearlySummary(user.id, now.getFullYear()),
       ]);
 
-      console.log('Data loaded:', { incomes: incRes.data.length, expenses: expRes.data.length });
       setIncomes(incRes.data);
       setExpenses(expRes.data);
       setTotalIncome(incRes.data.reduce((s: number, i: any) => s + i.amount, 0));
@@ -78,7 +75,6 @@ export default function BudgetScreen() {
       setMonthlyData(monthRes.data);
       setYearlyData(yearRes.data);
     } catch (err: any) {
-      console.log('Load error:', err?.response?.data || err?.message || err);
       Alert.alert('Error', 'Failed to load data. Please try again.');
     } finally {
       setLoading(false);
@@ -93,8 +89,8 @@ export default function BudgetScreen() {
       const dateStr = `${year}-${month}-${day}`;
       const res = await getDailySummary(userId, dateStr);
       setDailyData(res.data);
-    } catch (err) {
-      console.log('Daily load error:', err);
+    } catch {
+      // silently ignore daily load errors
     }
   };
 
@@ -210,7 +206,7 @@ export default function BudgetScreen() {
               </View>
               <View style={styles.transactionInfo}>
                 <Text style={styles.transactionLabel}>{exp.description || cat.label}</Text>
-                <Text style={styles.transactionDate}>{new Date(exp.createdAt).toLocaleDateString()}</Text>
+                <Text style={styles.transactionDate}>{new Date(exp.date || exp.createdAt).toLocaleDateString()}</Text>
               </View>
               <Text style={[styles.transactionAmount, { color: EV.danger }]}>-₱{exp.amount.toFixed(2)}</Text>
               <TouchableOpacity onPress={() => deleteExpense(exp._id)} style={{ padding: 4 }}>
@@ -410,7 +406,7 @@ export default function BudgetScreen() {
                       </View>
                       <View style={styles.transactionInfo}>
                         <Text style={styles.transactionLabel}>{exp.description || cat.label}</Text>
-                        <Text style={styles.transactionDate}>{new Date(exp.createdAt).toLocaleTimeString('en', { hour: '2-digit', minute: '2-digit' })}</Text>
+                        <Text style={styles.transactionDate}>{new Date(exp.date || exp.createdAt).toLocaleTimeString('en', { hour: '2-digit', minute: '2-digit' })}</Text>
                       </View>
                       <Text style={[styles.transactionAmount, { color: EV.danger }]}>-₱{exp.amount.toFixed(2)}</Text>
                     </View>

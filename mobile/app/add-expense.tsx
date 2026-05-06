@@ -3,7 +3,7 @@ import { View, Text, TextInput, TouchableOpacity, StyleSheet, ScrollView, Alert,
 import { useRouter } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { addExpense } from '@/services/api';
-import { EV } from '@/constants/theme';
+import { NATURE as EV } from '@/constants/theme';
 import { Ionicons } from '@expo/vector-icons';
 
 const CATEGORIES = [
@@ -26,16 +26,12 @@ export default function AddExpenseScreen() {
     try {
       const userStr = await AsyncStorage.getItem('user');
       const user = userStr ? JSON.parse(userStr) : {};
-      console.log('User:', user);
       if (!user.id) return Alert.alert('Error', 'Please login first');
       const payload = { userId: user.id, amount: parseFloat(amount), description, category };
-      console.log('Saving expense:', payload);
       const res = await addExpense(payload);
-      console.log('Expense saved:', res.data);
       Alert.alert('Success', 'Expense added!');
       router.back();
     } catch (err: any) {
-      console.log('Save error:', err?.response?.data || err?.message || err);
       Alert.alert('Error', err?.response?.data?.error || 'Failed to save expense');
     } finally {
       setLoading(false);

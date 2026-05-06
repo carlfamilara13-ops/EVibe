@@ -7,7 +7,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import MapView, { Marker, Polyline } from 'react-native-maps';
 import * as Location from 'expo-location';
 import { Ionicons } from '@expo/vector-icons';
-import { EV } from '@/constants/theme';
+import { NATURE as EV } from '@/constants/theme';
 import { fetchStations } from '@/services/ocm';
 import { getRoute, geocode, autoComplete } from '@/services/ors';
 import { getCommuteRoute } from '@/services/commute';

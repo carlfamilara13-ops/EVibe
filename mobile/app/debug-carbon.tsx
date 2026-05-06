@@ -3,7 +3,7 @@ import { View, Text, TouchableOpacity, StyleSheet, Alert, ActivityIndicator } fr
 import { useRouter } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { calculateTripCarbon } from '@/services/api';
-import { EV } from '@/constants/theme';
+import { NATURE as EV } from '@/constants/theme';
 
 export default function DebugCarbonScreen() {
   const router = useRouter();

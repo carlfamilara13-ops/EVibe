@@ -1,20 +1,22 @@
-import { DarkTheme, ThemeProvider } from '@react-navigation/native';
+import { DarkTheme, DefaultTheme, ThemeProvider } from '@react-navigation/native';
 import { Stack, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import 'react-native-reanimated';
-import { EV } from '@/constants/theme';
+import { GG, EV } from '@/constants/theme';
 import { useEffect } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
+const isLight = GG.bg === '#F7FBF7' || GG.bg === '#F0F8FF' || GG.bg === '#FFFDF7';
+const BaseTheme = isLight ? DefaultTheme : DarkTheme;
 const EVTheme = {
-  ...DarkTheme,
+  ...BaseTheme,
   colors: {
-    ...DarkTheme.colors,
-    primary: EV.primary,
-    background: EV.bg,
-    card: EV.bgCard,
-    text: EV.text,
-    border: EV.border,
+    ...BaseTheme.colors,
+    primary: GG.primary,
+    background: GG.bg,
+    card: GG.bgCard,
+    text: GG.text,
+    border: GG.border,
   },
 };
 
@@ -30,7 +32,7 @@ export default function RootLayout() {
       try {
         const token = await AsyncStorage.getItem('token');
         if (token) {
-          router.replace('/(tabs)');
+          router.replace('/(tabs)/home');
         } else {
           router.replace('/login');
         }
@@ -46,10 +48,12 @@ export default function RootLayout() {
       <Stack initialRouteName="login">
         <Stack.Screen name="login" options={{ headerShown: false }} />
         <Stack.Screen name="signup" options={{ headerShown: false }} />
+        <Stack.Screen name="home" options={{ headerShown: false }} />
+        <Stack.Screen name="trip-detail" options={{ headerShown: false }} />
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
         <Stack.Screen name="modal" options={{ presentation: 'modal', title: 'Modal' }} />
       </Stack>
-      <StatusBar style="light" />
+      <StatusBar style={GG.statusBar} />
     </ThemeProvider>
   );
 }
